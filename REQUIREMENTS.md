@@ -90,6 +90,30 @@ Gmail currently requires read access for Executive AI's intelligence functionali
 
 Calendar should initially support reading calendar information and later event creation/update.
 
+GOOGLE OAUTH CLIENT CONFIGURATION
+
+The Android OAuth client ID is a public identifier, not a secret, and may be committed to the repository.
+
+The configured Android OAuth client ID is stored in:
+
+app/src/main/res/values/strings.xml
+
+Resource name:
+
+google_android_oauth_client_id
+
+Do not put Google OAuth access tokens, refresh tokens, private keys, keystores, or other credentials in source control.
+
+The Android OAuth client must be registered in Google Cloud with:
+
+- Application type: Android
+- Package name: com.inialpha.executiveai
+- The SHA-1 certificate fingerprint corresponding to the signing key used by the build variant.
+
+The current development/debug SHA-1 is documented by the GitHub Actions signing-report workflow. Production/release builds will require their own release/Play App Signing certificate configuration.
+
+Required Google APIs and OAuth consent configuration must be enabled/configured in Google Cloud before live Gmail/Calendar synchronization can work.
+
 ---
 
 FRONTEND RESPONSIBILITY
