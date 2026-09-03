@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Public Android OAuth client identifier. This is not a secret and may be committed to source control. -->
+    <string name="google_android_oauth_client_id" translatable="false">518906859867-lhga35ln42drapv31h7vhq1hr9fsu644.apps.googleusercontent.com</string>
+</resources>
