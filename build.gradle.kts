@@ -6,7 +6,10 @@ plugins {
     // plugins and are declared explicitly.
     id("org.jetbrains.kotlin.plugin.compose") version "2.3.21" apply false
     id("org.jetbrains.kotlin.plugin.serialization") version "2.3.21" apply false
-    // KSP version must match the Kotlin plugin version above (format: <kotlinVersion>-<kspVersion>).
-    // Verify the exact current patch against https://github.com/google/ksp/releases before building.
-    id("com.google.devtools.ksp") version "2.3.21-2.0.4" apply false
+    // KSP's versioning is independent of the Kotlin version as of KSP 2.3.0 (see
+    // https://github.com/google/ksp/releases) — do not use the old <kotlinVersion>-<kspVersion>
+    // format. 2.3.11 is confirmed compatible with AGP 9 built-in Kotlin (see 2.3.10 release notes,
+    // "Fix R-class resolution in KSP when AGP 9 built-in Kotlin is enabled"). Re-check
+    // https://github.com/google/ksp/releases for anything newer before building.
+    id("com.google.devtools.ksp") version "2.3.11" apply false
 }
