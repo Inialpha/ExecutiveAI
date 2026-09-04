@@ -18,7 +18,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
 import com.inialpha.executiveai.ui.components.EmptyState
 import com.inialpha.executiveai.ui.components.ExecutiveItemCard
 import com.inialpha.executiveai.ui.components.LoadingState

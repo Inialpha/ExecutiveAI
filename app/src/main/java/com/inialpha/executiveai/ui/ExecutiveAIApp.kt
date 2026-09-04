@@ -21,15 +21,16 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.inialpha.executiveai.domain.model.Account
 import com.inialpha.executiveai.ui.components.LoadingState
 import com.inialpha.executiveai.ui.navigation.ExecutiveDestination
 import com.inialpha.executiveai.ui.navigation.ExecutiveNavGraph
@@ -43,7 +44,14 @@ import com.inialpha.executiveai.viewmodel.executiveAIContainer
 @Composable
 fun ExecutiveAIApp() {
     val container = executiveAIContainer()
-    val accounts by container.accountRepository.observeAccounts().collectAsStateWithLifecycle(initialValue = null)
+
+    // Explicit nullable local state (rather than collectAsStateWithLifecycle(initialValue = null),
+    // which type-mismatches against the non-nullable Flow<List<Account>>) so we can distinguish
+    // "still resolving" (null) from "resolved, zero accounts" (empty list).
+    var accounts by remember { mutableStateOf<List<Account>?>(null) }
+    LaunchedEffect(Unit) {
+        container.accountRepository.observeAccounts().collect { accounts = it }
+    }
 
     when (val currentAccounts = accounts) {
         null -> LoadingState() // still resolving whether any account is connected
