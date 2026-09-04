@@ -1,6 +1,6 @@
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
+    // Kotlin compilation comes from AGP 9's built-in support — no separate kotlin.android plugin.
     id("org.jetbrains.kotlin.plugin.compose")
     id("org.jetbrains.kotlin.plugin.serialization")
     id("com.google.devtools.ksp")
@@ -35,9 +35,12 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions {
-        jvmTarget = "17"
-    }
+    // NOTE: no explicit `kotlinOptions { jvmTarget = ... }` block here — that DSL is provided by
+    // the separate org.jetbrains.kotlin.android plugin, which this project deliberately does not
+    // apply (AGP 9 built-in Kotlin support instead; see build.gradle.kts). AGP 9's built-in Kotlin
+    // compilation derives its JVM target from `compileOptions` above. If a real Gradle sync shows
+    // this isn't sufficient, the current AGP 9 equivalent (e.g. a top-level `kotlin { jvmToolchain(17) }`
+    // block) should be added instead of reintroducing the kotlin.android plugin.
     buildFeatures {
         buildConfig = true
     }
