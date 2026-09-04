@@ -13,6 +13,10 @@ Legend: [x] done this pass · [~] scaffolded, needs another pass · [ ] not star
 ## Auth
 - [x] GoogleAuthManager on Identity.getAuthorizationClient (current, non-deprecated API)
 - [x] Incremental scope requests (identity → gmail.readonly → calendar.readonly/.events)
+- [x] Fixed root cause of `Status=UNREGISTERED_ON_API_CONSOLE` on "Add account": debug builds now
+      sign with a committed, fixed `keystore/debug.keystore` instead of a per-machine/per-CI-run
+      random key, so the SHA-1 is finally stable and reproducible — see SETUP.md step 4 for the
+      **action required**: register that keystore's SHA-1 in Cloud Console.
 - [ ] Verified end-to-end against a real Cloud Console project (needs SETUP.md steps 1-4)
 
 ## Build status

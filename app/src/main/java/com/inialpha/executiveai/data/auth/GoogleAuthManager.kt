@@ -99,8 +99,8 @@ class GoogleAuthManager(private val activity: ComponentActivity) {
 
         val token = finalResult.accessToken
             ?: return AuthorizationOutcome.Failure("Google did not return an access token")
-        // AuthorizationResult.grantedScopes is already List<String> (scope URIs), not List<Scope>.
-        val granted = finalResult.grantedScopes ?: scopes
+        // AuthorizationResult.grantedScopes is already a non-nullable List<String> of scope URIs.
+        val granted = finalResult.grantedScopes
         return AuthorizationOutcome.Success(token, granted)
     }
 

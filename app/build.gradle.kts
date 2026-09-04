@@ -28,6 +28,23 @@ android {
         }
         debug {
             isMinifyEnabled = false
+            // Fixed, committed debug keystore (keystore/debug.keystore) so the debug signing
+            // certificate's SHA-1 is identical across every machine and every CI run — Android
+            // Studio's per-machine ~/.android/debug.keystore is NOT used for this project. This
+            // is what makes the Android OAuth client's registered SHA-1 (see docs/SETUP.md)
+            // actually match the APK you're running, both locally and in CI. Without this, Google
+            // Identity's AuthorizationClient fails with Status=UNREGISTERED_ON_API_CONSOLE because
+            // no two builds are signed with the same key.
+            signingConfig = signingConfigs.getByName("debug")
+        }
+    }
+
+    signingConfigs {
+        getByName("debug") {
+            storeFile = rootProject.file("keystore/debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
         }
     }
 
