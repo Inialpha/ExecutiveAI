@@ -83,9 +83,12 @@ dependencies {
     implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
 
     // --- Room (local persistence) ---
-    implementation("androidx.room:room-runtime:2.6.1")
-    implementation("androidx.room:room-ktx:2.6.1")
-    ksp("androidx.room:room-compiler:2.6.1")
+    // Pinned to 2.8.4+ deliberately: earlier Room/KSP2 combinations hit a known KSP bug
+    // ("unexpected jvm signature V") on suspend DAO functions returning Unit — fixed in Room
+    // 2.7.0-alpha11+ (see https://github.com/google/ksp/issues/2957). Do not downgrade below 2.7.
+    implementation("androidx.room:room-runtime:2.8.4")
+    implementation("androidx.room:room-ktx:2.8.4")
+    ksp("androidx.room:room-compiler:2.8.4")
 
     // --- Google Sign-In (Credential Manager) + Authorization (Gmail/Calendar scopes) ---
     implementation("androidx.credentials:credentials:1.3.0")
