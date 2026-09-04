@@ -1,0 +1,24 @@
+package com.inialpha.executiveai.data.local.entity
+
+import androidx.room.Entity
+import androidx.room.Index
+import androidx.room.PrimaryKey
+
+@Entity(
+    tableName = "emails",
+    indices = [Index("accountId"), Index("threadId"), Index("receivedAt")],
+)
+data class EmailEntity(
+    @PrimaryKey val id: String,
+    val threadId: String,
+    val accountId: String,
+    val sender: String,
+    val senderName: String?,
+    val subject: String,
+    val snippet: String,
+    val content: String,
+    val receivedAt: Long,
+    val isRead: Boolean,
+    val isImportant: Boolean,
+    val hasInsight: Boolean,
+)
