@@ -1,145 +1,150 @@
 package com.inialpha.executiveai.ui
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.CalendarMonth
-import androidx.compose.material.icons.outlined.CheckCircle
-import androidx.compose.material.icons.outlined.Email
-import androidx.compose.material.icons.outlined.Notifications
-import androidx.compose.material.icons.outlined.TaskAlt
-import androidx.compose.material.icons.outlined.Tune
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
-import com.inialpha.executiveai.ui.theme.Card
-import com.inialpha.executiveai.ui.theme.Cyan
-import com.inialpha.executiveai.ui.theme.Navy
-import com.inialpha.executiveai.ui.theme.Teal
-import com.inialpha.executiveai.ui.theme.TextSecondary
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.navigation.NavHostController
+import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.navigation.compose.rememberNavController
+import com.inialpha.executiveai.ui.components.LoadingState
+import com.inialpha.executiveai.ui.navigation.ExecutiveDestination
+import com.inialpha.executiveai.ui.navigation.ExecutiveNavGraph
+import com.inialpha.executiveai.ui.navigation.bottomNavDestinations
+import com.inialpha.executiveai.viewmodel.executiveAIContainer
 
+/**
+ * App root: decides Onboarding vs. Dashboard as the start destination based on whether any
+ * Google account is already connected, then hosts the nav graph inside a bottom-nav Scaffold.
+ */
 @Composable
 fun ExecutiveAIApp() {
-    var selected by remember { mutableIntStateOf(0) }
-    val destinations = listOf("Today", "Tasks", "Calendar", "Email", "Settings")
-    val icons = listOf(Icons.Outlined.CheckCircle, Icons.Outlined.TaskAlt, Icons.Outlined.CalendarMonth, Icons.Outlined.Email, Icons.Outlined.Tune)
+    val container = executiveAIContainer()
+    val accounts by container.accountRepository.observeAccounts().collectAsStateWithLifecycle(initialValue = null)
+
+    when (val currentAccounts = accounts) {
+        null -> LoadingState() // still resolving whether any account is connected
+        else -> {
+            val startDestination = if (currentAccounts.isEmpty()) ExecutiveDestination.Onboarding.route else ExecutiveDestination.Dashboard.route
+            ExecutiveAIScaffold(startDestination = startDestination)
+        }
+    }
+}
+
+@Composable
+private fun ExecutiveAIScaffold(startDestination: String) {
+    val navController = rememberNavController()
+    val backStackEntry by navController.currentBackStackEntryAsState()
+    val currentRoute = backStackEntry?.destination?.route
 
     Scaffold(
-        containerColor = Navy,
+        topBar = {
+            if (currentRoute != ExecutiveDestination.Onboarding.route) {
+                ExecutiveTopBar(navController)
+            }
+        },
         bottomBar = {
-            NavigationBar(containerColor = Card) {
-                destinations.forEachIndexed { index, label ->
-                    NavigationBarItem(
-                        selected = selected == index,
-                        onClick = { selected = index },
-                        icon = { Icon(icons[index], contentDescription = label) },
-                        label = { Text(label) }
-                    )
-                }
+            if (currentRoute != ExecutiveDestination.Onboarding.route && currentRoute != ExecutiveDestination.EmailInsight.route) {
+                ExecutiveBottomBar(navController, currentRoute)
             }
-        }
+        },
     ) { padding ->
-        Dashboard(modifier = Modifier.padding(padding))
+        androidx.compose.foundation.layout.Box(modifier = Modifier.padding(padding)) {
+            ExecutiveNavGraph(navController = navController, startDestination = startDestination)
+        }
     }
 }
 
 @Composable
-private fun Dashboard(modifier: Modifier = Modifier) {
-    val priorities = listOf(
-        "Review project proposal" to "Due today · 4:00 PM",
-        "Team meeting" to "Tomorrow · 10:00 AM",
-        "Submit application" to "Friday · 12:00 PM"
+private fun ExecutiveTopBar(navController: NavHostController) {
+    var menuExpanded by remember { mutableStateOf(false) }
+    TopAppBar(
+        title = { Text("Executive AI") },
+        actions = {
+            IconButton(onClick = { navController.navigate(ExecutiveDestination.Assistant.route) }) {
+                Icon(Icons.Filled.Mic, contentDescription = "AI Assistant")
+            }
+            IconButton(onClick = { menuExpanded = true }) {
+                Icon(Icons.Filled.MoreVert, contentDescription = "More")
+            }
+            DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                DropdownMenuItem(
+                    text = { Text("Important emails") },
+                    leadingIcon = { Icon(Icons.Filled.CheckCircle, contentDescription = null) },
+                    onClick = { menuExpanded = false; navController.navigate(ExecutiveDestination.ImportantEmails.route) },
+                )
+                DropdownMenuItem(
+                    text = { Text("Reminders") },
+                    leadingIcon = { Icon(Icons.Filled.Notifications, contentDescription = null) },
+                    onClick = { menuExpanded = false; navController.navigate(ExecutiveDestination.Reminders.route) },
+                )
+                DropdownMenuItem(
+                    text = { Text("Settings") },
+                    leadingIcon = { Icon(Icons.Filled.Settings, contentDescription = null) },
+                    onClick = { menuExpanded = false; navController.navigate(ExecutiveDestination.Settings.route) },
+                )
+            }
+        },
     )
+}
 
-    LazyColumn(
-        modifier = modifier.fillMaxSize().background(Navy).padding(horizontal = 20.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
-    ) {
-        item {
-            Spacer(Modifier.height(20.dp))
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("Good evening", color = TextSecondary, style = MaterialTheme.typography.bodyMedium)
-                    Text("Executive Command Center", color = MaterialTheme.colorScheme.onBackground, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                }
-                IconButton(onClick = {}) {
-                    Icon(Icons.Outlined.Notifications, contentDescription = "Notifications", tint = Cyan)
-                }
-            }
-        }
-        item {
-            Card(
-                shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(containerColor = Teal)
-            ) {
-                Column(Modifier.padding(20.dp)) {
-                    Text("Your day at a glance", color = Navy, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge)
-                    Spacer(Modifier.height(8.dp))
-                    Text("3 priorities · 1 meeting · 2 unread important emails", color = Navy)
-                }
-            }
-        }
-        item { SectionTitle("Today") }
-        items(priorities) { (title, detail) ->
-            PriorityCard(title, detail)
-        }
-        item { SectionTitle("Needs your attention") }
-        item {
-            Card(colors = CardDefaults.cardColors(containerColor = Card), shape = RoundedCornerShape(16.dp)) {
-                Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Outlined.Email, contentDescription = null, tint = Cyan, modifier = Modifier.size(28.dp))
-                    Column(Modifier.padding(start = 14.dp).weight(1f)) {
-                        Text("2 important emails", fontWeight = FontWeight.SemiBold)
-                        Text("Executive AI found actions requiring review", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
+@Composable
+private fun ExecutiveBottomBar(navController: NavHostController, currentRoute: String?) {
+    NavigationBar {
+        bottomNavDestinations.forEach { destination ->
+            NavigationBarItem(
+                selected = currentRoute == destination.route,
+                onClick = {
+                    navController.navigate(destination.route) {
+                        popUpTo(navController.graph.startDestinationId) { saveState = true }
+                        launchSingleTop = true
+                        restoreState = true
                     }
-                }
-            }
+                },
+                icon = { Icon(iconFor(destination), contentDescription = null) },
+                label = { Text(labelFor(destination)) },
+            )
         }
-        item { Spacer(Modifier.height(10.dp)) }
     }
 }
 
-@Composable
-private fun SectionTitle(text: String) {
-    Text(text, color = MaterialTheme.colorScheme.onBackground, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 6.dp))
+private fun iconFor(destination: ExecutiveDestination) = when (destination) {
+    ExecutiveDestination.Dashboard -> Icons.Filled.Home
+    ExecutiveDestination.Upcoming -> Icons.Filled.DateRange
+    ExecutiveDestination.Tasks -> Icons.Filled.CheckCircle
+    ExecutiveDestination.Calendar -> Icons.Filled.CalendarMonth
+    ExecutiveDestination.Accounts -> Icons.Filled.AccountCircle
+    else -> Icons.Filled.Home
 }
 
-@Composable
-private fun PriorityCard(title: String, detail: String) {
-    Card(colors = CardDefaults.cardColors(containerColor = Card), shape = RoundedCornerShape(16.dp)) {
-        Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(10.dp).background(Cyan, RoundedCornerShape(50)))
-            Column(Modifier.padding(start = 14.dp)) {
-                Text(title, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
-                Text(detail, color = TextSecondary, style = MaterialTheme.typography.bodySmall)
-            }
-        }
-    }
+private fun labelFor(destination: ExecutiveDestination) = when (destination) {
+    ExecutiveDestination.Dashboard -> "Dashboard"
+    ExecutiveDestination.Upcoming -> "Upcoming"
+    ExecutiveDestination.Tasks -> "Tasks"
+    ExecutiveDestination.Calendar -> "Calendar"
+    ExecutiveDestination.Accounts -> "Accounts"
+    else -> ""
 }

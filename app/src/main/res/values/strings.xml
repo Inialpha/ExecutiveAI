@@ -2,4 +2,7 @@
 <resources>
     <!-- Public Android OAuth client identifier. This is not a secret and may be committed to source control. -->
     <string name="google_android_oauth_client_id" translatable="false">518906859867-lhga35ln42drapv31h7vhq1hr9fsu644.apps.googleusercontent.com</string>
+
+    <string name="notification_channel_reminders_name">Executive AI reminders</string>
+    <string name="notification_channel_reminders_description">Alerts for reminders, deadlines, and events you\'ve accepted</string>
 </resources>

@@ -1,15 +1,52 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Gmail / Calendar / AI gateway network access -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- Reminder / task notifications (runtime-requested on API 33+, see MainActivity) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Reminder alarm scheduling (see notification/ReminderScheduler — falls back to inexact
+         alarms when this is not granted, so it is requested via system settings, not at runtime) -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+
+    <!-- Re-schedule reminder alarms after a device restart (see notification/BootRescheduleReceiver) -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!-- Native on-device speech recognition for the AI Assistant -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
     <application
+        android:name=".ExecutiveAIApplication"
         android:theme="@style/Theme.ExecutiveAI"
         android:label="Executive AI"
         android:allowBackup="true"
         android:supportsRtl="true">
-        <activity android:name=".MainActivity" android:exported="true">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <receiver
+            android:name=".notification.ReminderAlarmReceiver"
+            android:exported="false" />
+
+        <receiver
+            android:name=".notification.BootRescheduleReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
     </application>
 </manifest>
