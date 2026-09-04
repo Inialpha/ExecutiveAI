@@ -86,6 +86,7 @@ private fun ExecutiveAIScaffold(startDestination: String) {
     }
 }
 
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 private fun ExecutiveTopBar(navController: NavHostController) {
     var menuExpanded by remember { mutableStateOf(false) }

@@ -99,19 +99,20 @@ class GoogleAuthManager(private val activity: ComponentActivity) {
 
         val token = finalResult.accessToken
             ?: return AuthorizationOutcome.Failure("Google did not return an access token")
-        val granted = finalResult.grantedScopes?.map { it.scopeUri } ?: scopes
+        // AuthorizationResult.grantedScopes is already List<String> (scope URIs), not List<Scope>.
+        val granted = finalResult.grantedScopes ?: scopes
         return AuthorizationOutcome.Success(token, granted)
     }
 
     /**
-     * Best-effort local revocation of this app's cached authorization state on-device.
-     * NOTE: verify the exact `revokeAccess` overload against the current
-     * com.google.android.gms:play-services-auth version when wiring this up — the Identity API
-     * has changed this signature across releases. The user can always revoke access directly
-     * from their Google Account's "Third-party apps & services" settings as a fallback.
+     * Best-effort local revocation. AuthorizationClient has no direct `revokeAccess()` in the
+     * current Identity Services API surface, so this is intentionally a no-op stub rather than a
+     * guessed method call — the user can always revoke access from their Google Account's
+     * "Third-party apps & services" settings, which is the reliable path. Wire this up to a real
+     * revocation call (if/when one is confirmed against the exact play-services-auth version in
+     * use) rather than reintroducing an unverified API guess.
      */
     fun revokeLocalToken() {
-        Identity.getAuthorizationClient(activity).revokeAccess()
-            .addOnFailureListener { /* no-op: local revoke is best-effort */ }
+        // Intentionally empty — see doc comment above.
     }
 }
