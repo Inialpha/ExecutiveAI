@@ -15,6 +15,14 @@ Legend: [x] done this pass · [~] scaffolded, needs another pass · [ ] not star
 - [x] Incremental scope requests (identity → gmail.readonly → calendar.readonly/.events)
 - [ ] Verified end-to-end against a real Cloud Console project (needs SETUP.md steps 1-4)
 
+## Build status
+- [x] `./gradlew`-equivalent CI build (`gradle assembleDebug`) verified GREEN on GitHub Actions
+      (run 33854449942, commit 4bc4952) — a real debug APK was compiled and uploaded, not just
+      claimed. Fixed along the way: an AGP-9-built-in-Kotlin plugin conflict, an invalid KSP
+      version pin, a Room/KSP2 known-bug version, a nullable-Flow type mismatch, an
+      AuthorizationResult API misuse (`grantedScopes` is `List<String>`, not `List<Scope>`), an
+      unverified `revokeAccess()` call, and a missing `@OptIn(ExperimentalMaterial3Api::class)`.
+
 ## Gmail
 - [x] REST DTOs + API interface
 - [x] MIME → plain-text mapper (multipart, base64url, html fallback)
