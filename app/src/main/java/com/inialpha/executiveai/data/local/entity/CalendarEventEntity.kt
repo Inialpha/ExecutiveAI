@@ -12,6 +12,8 @@ data class CalendarEventEntity(
     @PrimaryKey val id: String,
     val calendarId: String,
     val accountId: String,
+    /** "google" today — see CalendarEvent.provider doc comment for the extension point. */
+    val provider: String,
     val title: String,
     val description: String?,
     val location: String?,

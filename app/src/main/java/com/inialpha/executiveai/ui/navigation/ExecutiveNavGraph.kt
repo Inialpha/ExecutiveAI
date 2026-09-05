@@ -11,12 +11,11 @@ import com.inialpha.executiveai.ui.screens.assistant.AssistantScreen
 import com.inialpha.executiveai.ui.screens.calendar.CalendarScreen
 import com.inialpha.executiveai.ui.screens.dashboard.DashboardScreen
 import com.inialpha.executiveai.ui.screens.emailinsight.EmailInsightScreen
-import com.inialpha.executiveai.ui.screens.emails.ImportantEmailsScreen
+import com.inialpha.executiveai.ui.screens.emails.EmailsScreen
 import com.inialpha.executiveai.ui.screens.onboarding.OnboardingScreen
 import com.inialpha.executiveai.ui.screens.reminders.RemindersScreen
 import com.inialpha.executiveai.ui.screens.settings.SettingsScreen
 import com.inialpha.executiveai.ui.screens.tasks.TasksScreen
-import com.inialpha.executiveai.ui.screens.upcoming.UpcomingScreen
 
 @Composable
 fun ExecutiveNavGraph(navController: NavHostController, startDestination: String) {
@@ -32,15 +31,15 @@ fun ExecutiveNavGraph(navController: NavHostController, startDestination: String
         }
         composable(ExecutiveDestination.Dashboard.route) {
             DashboardScreen(
-                onOpenImportantEmails = { navController.navigate(ExecutiveDestination.ImportantEmails.route) },
+                onOpenEmails = { navController.navigate(ExecutiveDestination.Emails.route) },
                 onOpenEmail = { emailId -> navController.navigate(ExecutiveDestination.EmailInsight.createRoute(emailId)) },
-                onOpenUpcoming = { navController.navigate(ExecutiveDestination.Upcoming.route) },
+                onOpenCalendar = { navController.navigate(ExecutiveDestination.Calendar.route) },
                 onOpenAssistant = { navController.navigate(ExecutiveDestination.Assistant.route) },
                 onOpenAccounts = { navController.navigate(ExecutiveDestination.Accounts.route) },
             )
         }
-        composable(ExecutiveDestination.ImportantEmails.route) {
-            ImportantEmailsScreen(
+        composable(ExecutiveDestination.Emails.route) {
+            EmailsScreen(
                 onOpenEmail = { emailId -> navController.navigate(ExecutiveDestination.EmailInsight.createRoute(emailId)) },
             )
         }
@@ -51,7 +50,6 @@ fun ExecutiveNavGraph(navController: NavHostController, startDestination: String
             val emailId = backStackEntry.arguments?.getString(ExecutiveDestination.EmailInsight.ARG_EMAIL_ID).orEmpty()
             EmailInsightScreen(emailId = emailId)
         }
-        composable(ExecutiveDestination.Upcoming.route) { UpcomingScreen() }
         composable(ExecutiveDestination.Tasks.route) { TasksScreen() }
         composable(ExecutiveDestination.Reminders.route) { RemindersScreen() }
         composable(ExecutiveDestination.Calendar.route) { CalendarScreen() }

@@ -30,12 +30,16 @@ import com.inialpha.executiveai.viewmodel.DashboardViewModel
 import com.inialpha.executiveai.viewmodel.containerViewModelFactory
 import com.inialpha.executiveai.viewmodel.executiveAIContainer
 
-/** Executive command center: today's priorities, important mail, pending proposals, upcoming items. */
+/**
+ * Executive command center — displayed as "Home" in the bottom nav (see
+ * ui/navigation/ExecutiveDestinations.kt for why the underlying route/screen name is unchanged).
+ * Today's priorities, important mail, pending proposals, upcoming items.
+ */
 @Composable
 fun DashboardScreen(
-    onOpenImportantEmails: () -> Unit,
+    onOpenEmails: () -> Unit,
     onOpenEmail: (String) -> Unit,
-    onOpenUpcoming: () -> Unit,
+    onOpenCalendar: () -> Unit,
     onOpenAssistant: () -> Unit,
     onOpenAccounts: () -> Unit,
 ) {
@@ -73,7 +77,7 @@ fun DashboardScreen(
                 ) {
                     Column(Modifier.padding(16.dp)) {
                         Text("No connected accounts yet", fontWeight = FontWeight.Bold)
-                        Text("Add a Google account to start syncing Gmail and Calendar.", color = TextSecondary, modifier = Modifier.padding(top = 4.dp, bottom = 8.dp))
+                        Text("Add a Google account (from the Menu) to start syncing Gmail and Calendar.", color = TextSecondary, modifier = Modifier.padding(top = 4.dp, bottom = 8.dp))
                         TextButton(onClick = onOpenAccounts) { Text("Connect account") }
                     }
                 }
@@ -87,15 +91,13 @@ fun DashboardScreen(
             items(state.itemsNeedingReview.take(3)) { item -> ExecutiveItemCard(item) }
         }
 
-        item {
-            Row(onOpenImportantEmails, state.importantEmails.size)
-        }
+        item { SectionHeaderRow(title = "Important emails", actionLabel = emailsActionLabel(state.importantEmails.size), onAction = onOpenEmails) }
         items(state.importantEmails) { email -> EmailSummaryCard(email, onClick = { onOpenEmail(email.id) }) }
         if (state.importantEmails.isEmpty()) {
             item { EmptyState("No important emails yet", "Sync an account to let Executive AI find what matters.") }
         }
 
-        item { SectionHeader("Upcoming") }
+        item { SectionHeaderRow(title = "Upcoming", actionLabel = "See calendar", onAction = onOpenCalendar) }
         if (state.upcomingAccepted.isEmpty()) {
             item { EmptyState("Nothing scheduled", "Accepted events, deadlines, and reminders will show up here.") }
         }
@@ -107,13 +109,15 @@ fun DashboardScreen(
     }
 }
 
+private fun emailsActionLabel(count: Int) = if (count > 0) "See all ($count)" else "See all"
+
 @Composable
-private fun Row(onOpenImportantEmails: () -> Unit, count: Int) {
+private fun SectionHeaderRow(title: String, actionLabel: String, onAction: () -> Unit) {
     androidx.compose.foundation.layout.Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        SectionHeader("Important emails")
-        TextButton(onClick = onOpenImportantEmails) { Text(if (count > 0) "See all ($count)" else "See all") }
+        SectionHeader(title)
+        TextButton(onClick = onAction) { Text(actionLabel) }
     }
 }

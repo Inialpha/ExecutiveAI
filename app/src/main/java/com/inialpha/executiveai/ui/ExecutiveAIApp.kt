@@ -5,7 +5,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreVert
@@ -40,6 +40,9 @@ import com.inialpha.executiveai.viewmodel.executiveAIContainer
 /**
  * App root: decides Onboarding vs. Dashboard as the start destination based on whether any
  * Google account is already connected, then hosts the nav graph inside a bottom-nav Scaffold.
+ *
+ * Primary navigation is Home | Emails | Calendar | Menu. Connected Accounts and Reminders live
+ * in the Menu (top bar overflow) rather than the bottom bar — see [ExecutiveTopBar].
  */
 @Composable
 fun ExecutiveAIApp() {
@@ -97,13 +100,18 @@ private fun ExecutiveTopBar(navController: NavHostController) {
                 Icon(Icons.Filled.Mic, contentDescription = "AI Assistant")
             }
             IconButton(onClick = { menuExpanded = true }) {
-                Icon(Icons.Filled.MoreVert, contentDescription = "More")
+                Icon(Icons.Filled.MoreVert, contentDescription = "Menu")
             }
             DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
                 DropdownMenuItem(
-                    text = { Text("Important emails") },
+                    text = { Text("Connected accounts") },
+                    leadingIcon = { Icon(Icons.Filled.AccountCircle, contentDescription = null) },
+                    onClick = { menuExpanded = false; navController.navigate(ExecutiveDestination.Accounts.route) },
+                )
+                DropdownMenuItem(
+                    text = { Text("Tasks") },
                     leadingIcon = { Icon(Icons.Filled.CheckCircle, contentDescription = null) },
-                    onClick = { menuExpanded = false; navController.navigate(ExecutiveDestination.ImportantEmails.route) },
+                    onClick = { menuExpanded = false; navController.navigate(ExecutiveDestination.Tasks.route) },
                 )
                 DropdownMenuItem(
                     text = { Text("Reminders") },
@@ -142,18 +150,14 @@ private fun ExecutiveBottomBar(navController: NavHostController, currentRoute: S
 
 private fun iconFor(destination: ExecutiveDestination) = when (destination) {
     ExecutiveDestination.Dashboard -> Icons.Filled.Home
-    ExecutiveDestination.Upcoming -> Icons.Filled.DateRange
-    ExecutiveDestination.Tasks -> Icons.Filled.CheckCircle
+    ExecutiveDestination.Emails -> Icons.Filled.Email
     ExecutiveDestination.Calendar -> Icons.Filled.CalendarMonth
-    ExecutiveDestination.Accounts -> Icons.Filled.AccountCircle
     else -> Icons.Filled.Home
 }
 
 private fun labelFor(destination: ExecutiveDestination) = when (destination) {
-    ExecutiveDestination.Dashboard -> "Dashboard"
-    ExecutiveDestination.Upcoming -> "Upcoming"
-    ExecutiveDestination.Tasks -> "Tasks"
+    ExecutiveDestination.Dashboard -> "Home"
+    ExecutiveDestination.Emails -> "Emails"
     ExecutiveDestination.Calendar -> "Calendar"
-    ExecutiveDestination.Accounts -> "Accounts"
     else -> ""
 }

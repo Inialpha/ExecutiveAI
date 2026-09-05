@@ -2,8 +2,10 @@ package com.inialpha.executiveai.data.remote.calendar
 
 import retrofit2.Response
 import retrofit2.http.Body
+import retrofit2.http.DELETE
 import retrofit2.http.GET
 import retrofit2.http.Header
+import retrofit2.http.PATCH
 import retrofit2.http.POST
 import retrofit2.http.Path
 import retrofit2.http.Query
@@ -13,8 +15,9 @@ import retrofit2.http.Query
  * with a per-request Bearer token.
  *
  * Read scope required: https://www.googleapis.com/auth/calendar.readonly
- * Write scope (event creation, requested only once the user accepts a proposed event —
- * see REQUIREMENTS.md section 9): https://www.googleapis.com/auth/calendar.events
+ * Write scope (event creation, requested only once the user accepts a proposed event, or the
+ * user creates/edits/deletes an event directly from the Calendar screen — see
+ * REQUIREMENTS.md section 9): https://www.googleapis.com/auth/calendar.events
  */
 interface CalendarApi {
     @GET("calendar/v3/calendars/{calendarId}/events")
@@ -33,6 +36,21 @@ interface CalendarApi {
         @Path("calendarId") calendarId: String = "primary",
         @Body event: CalendarEventCreateDto,
     ): Response<CalendarEventDto>
+
+    @PATCH("calendar/v3/calendars/{calendarId}/events/{eventId}")
+    suspend fun updateEvent(
+        @Header("Authorization") bearerToken: String,
+        @Path("calendarId") calendarId: String = "primary",
+        @Path("eventId") eventId: String,
+        @Body event: CalendarEventCreateDto,
+    ): Response<CalendarEventDto>
+
+    @DELETE("calendar/v3/calendars/{calendarId}/events/{eventId}")
+    suspend fun deleteEvent(
+        @Header("Authorization") bearerToken: String,
+        @Path("calendarId") calendarId: String = "primary",
+        @Path("eventId") eventId: String,
+    ): Response<Unit>
 
     companion object {
         const val BASE_URL = "https://www.googleapis.com/"
