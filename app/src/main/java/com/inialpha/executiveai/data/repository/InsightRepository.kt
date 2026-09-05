@@ -4,6 +4,7 @@ import com.inialpha.executiveai.data.local.InsightJson
 import com.inialpha.executiveai.data.local.dao.EmailDao
 import com.inialpha.executiveai.data.local.dao.ExecutiveItemDao
 import com.inialpha.executiveai.data.local.dao.InsightDao
+import com.inialpha.executiveai.data.local.entity.EmailEntity
 import com.inialpha.executiveai.data.local.entity.ExecutiveItemEntity
 import com.inialpha.executiveai.data.local.entity.InsightEntity
 import com.inialpha.executiveai.data.remote.NetworkFactory
@@ -12,7 +13,7 @@ import com.inialpha.executiveai.data.remote.ai.EmailPayloadDto
 import com.inialpha.executiveai.data.remote.ai.InsightRequestDto
 import com.inialpha.executiveai.data.remote.ai.InsightResponseDto
 import com.inialpha.executiveai.domain.model.EmailInsight
-import com.inialpha.executiveai.domain.model.EmailMessage
+import com.inialpha.executiveai.domain.model.EmailProcessingStatus
 import com.inialpha.executiveai.domain.model.ExecutiveItemState
 import com.inialpha.executiveai.domain.model.ExecutiveItemType
 import kotlinx.coroutines.flow.Flow
@@ -27,21 +28,29 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.UUID
 
-sealed class InsightFetchResult {
-    data class Success(val processedCount: Int, val skippedCount: Int) : InsightFetchResult()
-    object Empty : InsightFetchResult()
-    object AuthOrServerUnavailable : InsightFetchResult()
-    data class NetworkError(val message: String) : InsightFetchResult()
-    data class ApiError(val code: Int, val message: String) : InsightFetchResult()
+/** Outcome of processing a single email — see [InsightRepository.processNextPendingEmail]. */
+sealed class EmailProcessingResult {
+    data class Processed(val emailId: String) : EmailProcessingResult()
+    data class Failed(val emailId: String, val reason: String) : EmailProcessingResult()
+    /** No PENDING/FAILED email remained for this account — the queue is empty. */
+    object NothingToProcess : EmailProcessingResult()
 }
 
+/** Summary of a full sequential run across every unprocessed email for one account. */
+data class SequentialProcessingSummary(
+    val processedCount: Int,
+    val failedCount: Int,
+)
+
 /**
- * Bridges Android to the EmailManager AI gateway. Sends the full batch of emails needing
- * insight in one request (no client-side chunking, per REQUIREMENTS.md), and turns each
- * successfully-processed result into:
- *  1. a persisted [InsightEntity] (for the Email Insight screen), and
- *  2. one PROPOSED [ExecutiveItemEntity] per event/action/deadline/reminder the AI found — never
- *     ACCEPTED automatically. The user reviews and decides from there.
+ * Bridges Android to the EmailManager AI gateway — **one email at a time**, oldest received
+ * first, per REQUIREMENTS.md's sequential-processing flow. The next email is never sent until
+ * the current one's result has been validated and persisted (or marked FAILED), and every
+ * outcome is written to Room immediately, so the queue position survives an app restart or a
+ * mid-run interruption without any in-memory processing state.
+ *
+ * The AI gateway's request/response contract is unchanged from before — each call still POSTs
+ * the same [InsightRequestDto] shape, just with a one-element `emails` list instead of a batch.
  */
 class InsightRepository(
     private val emailDao: EmailDao,
@@ -55,53 +64,81 @@ class InsightRepository(
     suspend fun getForEmail(emailId: String): EmailInsight? = insightDao.getByEmailId(emailId)?.toDomain()
 
     /**
-     * Fetches insights for up to [maxBatch] emails that don't have one yet. Individual malformed
-     * results from the backend are skipped rather than failing the whole batch.
+     * Processes every PENDING/FAILED email for [accountId], strictly one at a time, oldest
+     * received first — awaiting each result before starting the next. A per-email failure marks
+     * that email FAILED and continues to the next one rather than aborting the whole run, so a
+     * single bad email can't block everything behind it (it simply remains retryable on the next
+     * synchronization). Safe to call repeatedly / resume after an interruption: it always just
+     * re-reads whatever is left in PENDING/FAILED state.
      */
-    suspend fun fetchInsightsForPendingEmails(maxBatch: Int = 25): InsightFetchResult {
-        val pending = emailDao.getWithoutInsight(maxBatch)
-        if (pending.isEmpty()) return InsightFetchResult.Empty
-
-        val request = InsightRequestDto(
-            currentDatetime = currentIsoDatetimeWithOffset(),
-            emails = pending.map {
-                EmailPayloadDto(
-                    id = it.id,
-                    threadId = it.threadId,
-                    sender = it.sender,
-                    subject = it.subject,
-                    content = it.content,
-                    snippet = it.snippet,
-                )
-            },
-        )
-
-        return try {
-            val response = api.extractInsights(request)
-            if (!response.isSuccessful) {
-                return if (response.code() in intArrayOf(401, 403, 502, 503, 504)) {
-                    InsightFetchResult.AuthOrServerUnavailable
-                } else {
-                    InsightFetchResult.ApiError(response.code(), response.message())
-                }
+    suspend fun processAllPendingForAccount(accountId: String): SequentialProcessingSummary {
+        var processed = 0
+        var failed = 0
+        while (true) {
+            when (val result = processNextPendingEmail(accountId)) {
+                is EmailProcessingResult.Processed -> processed++
+                is EmailProcessingResult.Failed -> failed++
+                EmailProcessingResult.NothingToProcess -> return SequentialProcessingSummary(processed, failed)
             }
-
-            val results = response.body().orEmpty()
-            val accountByEmailId = pending.associateBy({ it.id }, { it.accountId })
-            var processed = 0
-            for (dto in results) {
-                val accountId = accountByEmailId[dto.id] ?: continue // result we can't associate with a synced email: skip
-                persistInsight(accountId, dto)
-                processed++
-            }
-            InsightFetchResult.Success(processedCount = processed, skippedCount = pending.size - processed)
-        } catch (e: IOException) {
-            InsightFetchResult.NetworkError(e.message ?: "Network error contacting the AI gateway")
-        } catch (e: HttpException) {
-            InsightFetchResult.ApiError(e.code(), e.message())
         }
     }
 
+    /**
+     * Processes exactly one email: the earliest-received PENDING/FAILED email for [accountId].
+     * Exposed separately from [processAllPendingForAccount] so a caller (or a future
+     * cancellable/observable UI) can process a single step at a time if needed — the sequential
+     * loop above is just this called repeatedly.
+     */
+    suspend fun processNextPendingEmail(accountId: String): EmailProcessingResult {
+        val next = emailDao.getUnprocessedForAccount(accountId).firstOrNull()
+            ?: return EmailProcessingResult.NothingToProcess
+
+        return try {
+            val request = InsightRequestDto(
+                currentDatetime = currentIsoDatetimeWithOffset(),
+                emails = listOf(
+                    EmailPayloadDto(
+                        id = next.id,
+                        threadId = next.threadId,
+                        sender = next.sender,
+                        subject = next.subject,
+                        content = next.content,
+                        snippet = next.snippet,
+                    ),
+                ),
+            )
+
+            val response = api.extractInsights(request)
+            if (!response.isSuccessful) {
+                emailDao.updateProcessingStatus(next.id, EmailProcessingStatus.FAILED.name)
+                return EmailProcessingResult.Failed(next.id, "AI gateway returned HTTP ${response.code()}")
+            }
+
+            // Validate: the single result we asked for must actually be present and match this email.
+            val result = response.body().orEmpty().firstOrNull { it.id == next.id }
+            if (result == null) {
+                emailDao.updateProcessingStatus(next.id, EmailProcessingStatus.FAILED.name)
+                return EmailProcessingResult.Failed(next.id, "AI gateway returned no result for this email")
+            }
+
+            persistInsight(accountId, result)
+            emailDao.updateProcessingResult(next.id, EmailProcessingStatus.COMPLETED.name, result.isImportant)
+            EmailProcessingResult.Processed(next.id)
+        } catch (e: IOException) {
+            emailDao.updateProcessingStatus(next.id, EmailProcessingStatus.FAILED.name)
+            EmailProcessingResult.Failed(next.id, e.message ?: "Network error contacting the AI gateway")
+        } catch (e: HttpException) {
+            emailDao.updateProcessingStatus(next.id, EmailProcessingStatus.FAILED.name)
+            EmailProcessingResult.Failed(next.id, e.message())
+        } catch (e: Exception) {
+            // Any other unexpected failure (malformed response body, etc.) — mark FAILED and
+            // retryable rather than losing track of this email or crashing the sync.
+            emailDao.updateProcessingStatus(next.id, EmailProcessingStatus.FAILED.name)
+            EmailProcessingResult.Failed(next.id, e.message ?: "Unexpected error processing this email")
+        }
+    }
+
+    /** Persists the insight and creates one PROPOSED [ExecutiveItemEntity] per extracted item. */
     private suspend fun persistInsight(accountId: String, dto: InsightResponseDto) {
         val now = System.currentTimeMillis()
         val entity = InsightEntity(
@@ -127,7 +164,6 @@ class InsightRepository(
             fetchedAt = now,
         )
         insightDao.upsert(entity)
-        emailDao.markInsightApplied(dto.id, dto.isImportant)
 
         val proposedItems = mutableListOf<ExecutiveItemEntity>()
         dto.events.forEach { event ->

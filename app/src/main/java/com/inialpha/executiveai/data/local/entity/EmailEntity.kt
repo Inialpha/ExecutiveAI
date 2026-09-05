@@ -6,7 +6,7 @@ import androidx.room.PrimaryKey
 
 @Entity(
     tableName = "emails",
-    indices = [Index("accountId"), Index("threadId"), Index("receivedAt")],
+    indices = [Index("accountId"), Index("threadId"), Index("receivedAt"), Index("processingStatus")],
 )
 data class EmailEntity(
     @PrimaryKey val id: String,
@@ -20,5 +20,6 @@ data class EmailEntity(
     val receivedAt: Long,
     val isRead: Boolean,
     val isImportant: Boolean,
-    val hasInsight: Boolean,
+    /** Stores [com.inialpha.executiveai.domain.model.EmailProcessingStatus] by name. */
+    val processingStatus: String,
 )

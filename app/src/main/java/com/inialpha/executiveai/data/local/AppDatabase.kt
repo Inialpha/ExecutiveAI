@@ -21,7 +21,7 @@ import com.inialpha.executiveai.data.local.entity.InsightEntity
         ExecutiveItemEntity::class,
         CalendarEventEntity::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {

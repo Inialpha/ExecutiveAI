@@ -27,7 +27,14 @@ class AppContainer(context: Context) {
         context.applicationContext,
         AppDatabase::class.java,
         AppDatabase.DATABASE_NAME,
-    ).build()
+    )
+        // Pre-release schema change (EmailEntity.hasInsight -> processingStatus,
+        // CalendarEventEntity.provider added, DB version 1 -> 2). No production installs exist
+        // yet, so a destructive migration is the pragmatic choice here rather than writing a
+        // throwaway Migration(1, 2) for data that doesn't need preserving. Replace this with a
+        // real Migration once the app has real users with local data worth keeping.
+        .fallbackToDestructiveMigration(true)
+        .build()
 
     val accountRepository = AccountRepository(database.accountDao())
     val emailRepository = EmailRepository(database.emailDao())

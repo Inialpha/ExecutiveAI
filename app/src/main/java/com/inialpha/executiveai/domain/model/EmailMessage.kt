@@ -7,6 +7,11 @@ package com.inialpha.executiveai.domain.model
  *
  * [content] holds a bounded, plain-text extraction of the message body (not the full raw
  * MIME payload) to avoid storing unnecessary raw email content on-device.
+ *
+ * [processingStatus] is the durable per-email AI-processing state — see [EmailProcessingStatus].
+ * A re-synchronization never resets an existing email's status back to PENDING (see
+ * [com.inialpha.executiveai.data.repository.EmailRepository.syncAccount]), so COMPLETED emails
+ * are never reprocessed and FAILED ones remain retryable.
  */
 data class EmailMessage(
     val id: String,
@@ -20,5 +25,5 @@ data class EmailMessage(
     val receivedAt: Long,
     val isRead: Boolean,
     val isImportant: Boolean,
-    val hasInsight: Boolean,
+    val processingStatus: EmailProcessingStatus,
 )

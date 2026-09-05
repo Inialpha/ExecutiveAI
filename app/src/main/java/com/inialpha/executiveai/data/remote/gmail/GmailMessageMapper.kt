@@ -2,6 +2,7 @@ package com.inialpha.executiveai.data.remote.gmail
 
 import android.util.Base64
 import com.inialpha.executiveai.domain.model.EmailMessage
+import com.inialpha.executiveai.domain.model.EmailProcessingStatus
 
 /**
  * Turns a raw Gmail API message resource into our domain [EmailMessage].
@@ -34,7 +35,7 @@ object GmailMessageMapper {
             receivedAt = receivedAt,
             isRead = !isUnread,
             isImportant = false, // set once AI insight is applied
-            hasInsight = false,
+            processingStatus = EmailProcessingStatus.PENDING,
         )
     }
 

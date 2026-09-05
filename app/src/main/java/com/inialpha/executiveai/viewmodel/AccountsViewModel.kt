@@ -67,19 +67,35 @@ class AccountsViewModel(private val container: AppContainer) : ViewModel() {
         container.accountRepository.disconnectAccount(accountId)
     }
 
-    /** Synchronizes Gmail + Calendar for every account with sync enabled, then fetches AI insights for new mail. */
+    /**
+     * Synchronizes Gmail + Calendar for every account with sync enabled. Per REQUIREMENTS.md,
+     * gathering is decoupled from processing: for each account, Gmail messages are fetched and
+     * persisted first (regardless of whether AI processing succeeds), then that account's
+     * PENDING/FAILED emails are processed sequentially, one at a time, oldest first — see
+     * [com.inialpha.executiveai.data.repository.InsightRepository.processAllPendingForAccount].
+     * If processing is interrupted partway, whatever completed stays completed; the rest is
+     * picked up again on the next call to this function.
+     */
     fun syncAll() {
         val authManager = container.googleAuthManager ?: return
         viewModelScope.launch {
             _state.value = _state.value.copy(isSyncing = true, statusMessage = null)
             val accounts = _state.value.accounts
             var anyFailure = false
+            var totalProcessed = 0
+            var totalFailed = 0
             for (account in accounts) {
                 if (account.isGmailSyncEnabled) {
                     val outcome = authManager.authorize(listOf(AccountAuthScopes.GMAIL_READONLY), account.email)
                     if (outcome is AuthorizationOutcome.Success) {
                         container.emailRepository.syncAccount(outcome.accessToken, account.id)
                         container.accountRepository.markGmailSynced(account.id, System.currentTimeMillis())
+                        // Process this account's queue sequentially before moving to the next
+                        // account — gathering (above) already persisted every fetched email
+                        // regardless of what happens here.
+                        val summary = container.insightRepository.processAllPendingForAccount(account.id)
+                        totalProcessed += summary.processedCount
+                        totalFailed += summary.failedCount
                     } else {
                         anyFailure = true
                     }
@@ -94,11 +110,12 @@ class AccountsViewModel(private val container: AppContainer) : ViewModel() {
                     }
                 }
             }
-            container.insightRepository.fetchInsightsForPendingEmails()
-            _state.value = _state.value.copy(
-                isSyncing = false,
-                statusMessage = if (anyFailure) "Some accounts need re-authorization." else "Synced.",
-            )
+            val statusMessage = when {
+                anyFailure -> "Some accounts need re-authorization."
+                totalFailed > 0 -> "Synced. $totalProcessed email(s) processed, $totalFailed failed and will retry next sync."
+                else -> "Synced."
+            }
+            _state.value = _state.value.copy(isSyncing = false, statusMessage = statusMessage)
         }
     }
 }
