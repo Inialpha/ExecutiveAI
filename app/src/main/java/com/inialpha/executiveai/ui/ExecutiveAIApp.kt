@@ -109,11 +109,6 @@ private fun ExecutiveTopBar(navController: NavHostController) {
                     onClick = { menuExpanded = false; navController.navigate(ExecutiveDestination.Accounts.route) },
                 )
                 DropdownMenuItem(
-                    text = { Text("Tasks") },
-                    leadingIcon = { Icon(Icons.Filled.CheckCircle, contentDescription = null) },
-                    onClick = { menuExpanded = false; navController.navigate(ExecutiveDestination.Tasks.route) },
-                )
-                DropdownMenuItem(
                     text = { Text("Reminders") },
                     leadingIcon = { Icon(Icons.Filled.Notifications, contentDescription = null) },
                     onClick = { menuExpanded = false; navController.navigate(ExecutiveDestination.Reminders.route) },
@@ -152,6 +147,7 @@ private fun iconFor(destination: ExecutiveDestination) = when (destination) {
     ExecutiveDestination.Dashboard -> Icons.Filled.Home
     ExecutiveDestination.Emails -> Icons.Filled.Email
     ExecutiveDestination.Calendar -> Icons.Filled.CalendarMonth
+    ExecutiveDestination.Tasks -> Icons.Filled.CheckCircle
     else -> Icons.Filled.Home
 }
 
@@ -159,5 +155,6 @@ private fun labelFor(destination: ExecutiveDestination) = when (destination) {
     ExecutiveDestination.Dashboard -> "Home"
     ExecutiveDestination.Emails -> "Emails"
     ExecutiveDestination.Calendar -> "Calendar"
+    ExecutiveDestination.Tasks -> "Tasks"
     else -> ""
 }

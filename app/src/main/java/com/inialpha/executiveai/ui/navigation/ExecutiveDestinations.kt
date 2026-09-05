@@ -26,9 +26,10 @@ sealed class ExecutiveDestination(val route: String) {
     object Settings : ExecutiveDestination("settings")
 }
 
-/** Primary bottom navigation: Home | Emails | Calendar. Accounts and Upcoming are reached via the Menu / Calendar respectively. */
+/** Primary bottom navigation: Home | Emails | Calendar | Tasks. Accounts is reached via the Menu. */
 val bottomNavDestinations = listOf(
     ExecutiveDestination.Dashboard,
     ExecutiveDestination.Emails,
     ExecutiveDestination.Calendar,
+    ExecutiveDestination.Tasks,
 )

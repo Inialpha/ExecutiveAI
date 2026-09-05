@@ -99,7 +99,7 @@ fun CalendarScreen() {
                 }
             }
             state.statusMessage?.let {
-                Text(it, color = TextSecondary, modifier = Modifier.padding(horizontal = 16.dp, bottom = 8.dp))
+                Text(it, color = TextSecondary, modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp))
             }
 
             if (isEmpty) {
