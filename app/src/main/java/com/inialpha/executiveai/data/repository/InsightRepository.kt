@@ -17,6 +17,7 @@ import com.inialpha.executiveai.domain.model.EmailProcessingStatus
 import com.inialpha.executiveai.domain.model.ExecutiveItemState
 import com.inialpha.executiveai.domain.model.ExecutiveItemType
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import retrofit2.HttpException
 import java.io.IOException
@@ -28,17 +29,36 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.UUID
 
-/** Outcome of processing a single email — see [InsightRepository.processNextPendingEmail]. */
-sealed class EmailProcessingResult {
-    data class Processed(val emailId: String) : EmailProcessingResult()
-    data class Failed(val emailId: String, val reason: String) : EmailProcessingResult()
-    /** No PENDING/FAILED email remained for this account — the queue is empty. */
-    object NothingToProcess : EmailProcessingResult()
+/** Outcome of processing a single email. */
+private sealed class EmailOutcome {
+    object Processed : EmailOutcome()
+    data class Failed(val reason: String) : EmailOutcome()
 }
 
-/** Summary of a full sequential run across every unprocessed email for one account. */
-data class SequentialProcessingSummary(
-    val processedCount: Int,
+/** Where a single email is in its processing lifecycle, for UI progress display. */
+enum class EmailProcessingPhase {
+    /** Emitted once at the start with the full queue size and nothing processed yet. */
+    STARTED,
+    /** About to send this email to the AI gateway. */
+    PROCESSING,
+    SUCCEEDED,
+    FAILED,
+    /** Emitted once at the end, after every email in the queue has been handled. */
+    COMPLETE,
+}
+
+/**
+ * One progress event for the currently running sequential batch — see
+ * [InsightRepository.processAllPendingForAccount]. [currentIndex] is 1-based; 0 only for the
+ * initial STARTED event. [succeededCount]/[failedCount] reflect everything completed so far,
+ * *including* the item this event is reporting on for SUCCEEDED/FAILED phases.
+ */
+data class EmailProcessingProgress(
+    val totalCount: Int,
+    val currentIndex: Int,
+    val currentEmailLabel: String,
+    val phase: EmailProcessingPhase,
+    val succeededCount: Int,
     val failedCount: Int,
 )
 
@@ -46,8 +66,9 @@ data class SequentialProcessingSummary(
  * Bridges Android to the EmailManager AI gateway — **one email at a time**, oldest received
  * first, per REQUIREMENTS.md's sequential-processing flow. The next email is never sent until
  * the current one's result has been validated and persisted (or marked FAILED), and every
- * outcome is written to Room immediately, so the queue position survives an app restart or a
- * mid-run interruption without any in-memory processing state.
+ * outcome is written to Room immediately as it happens — not batched at the end — so a
+ * successful result is visible in the rest of the app (e.g. the Emails screen) right away, and
+ * an interruption or a single failure never loses or rolls back what already succeeded.
  *
  * The AI gateway's request/response contract is unchanged from before — each call still POSTs
  * the same [InsightRequestDto] shape, just with a one-element `emails` list instead of a batch.
@@ -64,77 +85,91 @@ class InsightRepository(
     suspend fun getForEmail(emailId: String): EmailInsight? = insightDao.getByEmailId(emailId)?.toDomain()
 
     /**
-     * Processes every PENDING/FAILED email for [accountId], strictly one at a time, oldest
-     * received first — awaiting each result before starting the next. A per-email failure marks
-     * that email FAILED and continues to the next one rather than aborting the whole run, so a
-     * single bad email can't block everything behind it (it simply remains retryable on the next
-     * synchronization). Safe to call repeatedly / resume after an interruption: it always just
-     * re-reads whatever is left in PENDING/FAILED state.
+     * Processes every PENDING/FAILED email for [accountId] received at or after [sinceMillis]
+     * (the currently selected sync window), strictly one at a time, oldest received first —
+     * awaiting each result before starting the next, and emitting an [EmailProcessingProgress]
+     * event before and after each one so the UI can show real progress instead of a generic
+     * spinner. A per-email failure marks that email FAILED and continues to the next one rather
+     * than aborting the whole run — see [EmailProcessingPhase.FAILED] — so a single bad email
+     * can't block everything behind it; it simply remains retryable (if still within the window)
+     * on the next synchronization. Safe to call repeatedly / resume after an interruption: it
+     * always just re-reads whatever is left in PENDING/FAILED state within the window.
      */
-    suspend fun processAllPendingForAccount(accountId: String): SequentialProcessingSummary {
-        var processed = 0
+    fun processAllPendingForAccount(accountId: String, sinceMillis: Long): Flow<EmailProcessingProgress> = flow {
+        val queue = emailDao.getUnprocessedForAccount(accountId, sinceMillis)
+        var succeeded = 0
         var failed = 0
-        while (true) {
-            when (val result = processNextPendingEmail(accountId)) {
-                is EmailProcessingResult.Processed -> processed++
-                is EmailProcessingResult.Failed -> failed++
-                EmailProcessingResult.NothingToProcess -> return SequentialProcessingSummary(processed, failed)
+        emit(EmailProcessingProgress(queue.size, 0, "", EmailProcessingPhase.STARTED, 0, 0))
+
+        queue.forEachIndexed { index, email ->
+            val position = index + 1
+            val label = emailLabel(email)
+            emit(EmailProcessingProgress(queue.size, position, label, EmailProcessingPhase.PROCESSING, succeeded, failed))
+
+            when (val outcome = processSingleEmail(accountId, email)) {
+                EmailOutcome.Processed -> {
+                    succeeded++
+                    emit(EmailProcessingProgress(queue.size, position, label, EmailProcessingPhase.SUCCEEDED, succeeded, failed))
+                }
+                is EmailOutcome.Failed -> {
+                    failed++
+                    emit(EmailProcessingProgress(queue.size, position, label, EmailProcessingPhase.FAILED, succeeded, failed))
+                }
             }
         }
+
+        emit(EmailProcessingProgress(queue.size, queue.size, "", EmailProcessingPhase.COMPLETE, succeeded, failed))
     }
 
-    /**
-     * Processes exactly one email: the earliest-received PENDING/FAILED email for [accountId].
-     * Exposed separately from [processAllPendingForAccount] so a caller (or a future
-     * cancellable/observable UI) can process a single step at a time if needed — the sequential
-     * loop above is just this called repeatedly.
-     */
-    suspend fun processNextPendingEmail(accountId: String): EmailProcessingResult {
-        val next = emailDao.getUnprocessedForAccount(accountId).firstOrNull()
-            ?: return EmailProcessingResult.NothingToProcess
+    private fun emailLabel(email: EmailEntity): String {
+        val sender = email.senderName?.takeIf { it.isNotBlank() } ?: email.sender
+        return "$sender — ${email.subject}"
+    }
 
+    /** Sends exactly one email to the AI gateway and persists the outcome (success or failure) immediately. */
+    private suspend fun processSingleEmail(accountId: String, email: EmailEntity): EmailOutcome {
         return try {
             val request = InsightRequestDto(
                 currentDatetime = currentIsoDatetimeWithOffset(),
                 emails = listOf(
                     EmailPayloadDto(
-                        id = next.id,
-                        threadId = next.threadId,
-                        sender = next.sender,
-                        subject = next.subject,
-                        content = next.content,
-                        snippet = next.snippet,
+                        id = email.id,
+                        threadId = email.threadId,
+                        sender = email.sender,
+                        subject = email.subject,
+                        content = email.content,
+                        snippet = email.snippet,
                     ),
                 ),
             )
 
             val response = api.extractInsights(request)
             if (!response.isSuccessful) {
-                emailDao.updateProcessingStatus(next.id, EmailProcessingStatus.FAILED.name)
-                return EmailProcessingResult.Failed(next.id, "AI gateway returned HTTP ${response.code()}")
+                emailDao.updateProcessingStatus(email.id, EmailProcessingStatus.FAILED.name)
+                return EmailOutcome.Failed("AI gateway returned HTTP ${response.code()}")
             }
 
             // Validate: the single result we asked for must actually be present and match this email.
-            val result = response.body().orEmpty().firstOrNull { it.id == next.id }
+            val result = response.body().orEmpty().firstOrNull { it.id == email.id }
             if (result == null) {
-                emailDao.updateProcessingStatus(next.id, EmailProcessingStatus.FAILED.name)
-                return EmailProcessingResult.Failed(next.id, "AI gateway returned no result for this email")
+                emailDao.updateProcessingStatus(email.id, EmailProcessingStatus.FAILED.name)
+                return EmailOutcome.Failed("AI gateway returned no result for this email")
             }
 
             persistInsight(accountId, result)
-            emailDao.updateProcessingResult(next.id, EmailProcessingStatus.COMPLETED.name, result.isImportant)
-            EmailProcessingResult.Processed(next.id)
+            emailDao.updateProcessingResult(email.id, EmailProcessingStatus.COMPLETED.name, result.isImportant)
+            EmailOutcome.Processed
         } catch (e: IOException) {
-            emailDao.updateProcessingStatus(next.id, EmailProcessingStatus.FAILED.name)
-            EmailProcessingResult.Failed(next.id, e.message ?: "Network error contacting the AI gateway")
+            emailDao.updateProcessingStatus(email.id, EmailProcessingStatus.FAILED.name)
+            EmailOutcome.Failed(e.message ?: "Network error contacting the AI gateway")
         } catch (e: HttpException) {
-            emailDao.updateProcessingStatus(next.id, EmailProcessingStatus.FAILED.name)
-            EmailProcessingResult.Failed(next.id, e.message())
+            emailDao.updateProcessingStatus(email.id, EmailProcessingStatus.FAILED.name)
+            EmailOutcome.Failed(e.message())
         } catch (e: Exception) {
             // Any other unexpected failure (malformed response body, etc.) — mark FAILED and
             // retryable rather than losing track of this email or crashing the sync.
-            emailDao.updateProcessingStatus(next.id, EmailProcessingStatus.FAILED.name)
-            EmailProcessingResult.Failed(next.id, e.message ?: "Unexpected error processing this email")
+            emailDao.updateProcessingStatus(email.id, EmailProcessingStatus.FAILED.name)
+            EmailOutcome.Failed(e.message ?: "Unexpected error processing this email")
         }
     }
 
