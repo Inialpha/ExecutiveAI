@@ -25,17 +25,19 @@ interface EmailDao {
     suspend fun getByIds(ids: List<String>): List<EmailEntity>
 
     /**
-     * Emails still needing AI processing for one account — PENDING (never sent) or FAILED
-     * (attempted, didn't complete), oldest received first. COMPLETED emails are never returned
-     * here, so a later synchronization naturally skips them. See
-     * [com.inialpha.executiveai.data.repository.InsightRepository] for the sequential,
-     * one-at-a-time consumer of this list.
+     * Emails still needing AI processing for one account, **within the given synchronization
+     * window** — PENDING (never sent) or FAILED (attempted, didn't complete) and received at or
+     * after [sinceMillis], oldest received first. COMPLETED emails are never returned here, and a
+     * FAILED email that has aged out of the currently selected sync window is not retried (per
+     * REQUIREMENTS change request section 4's example: a 30-hour-old FAILED email is not eligible
+     * under a 24-hour window). See [com.inialpha.executiveai.data.repository.InsightRepository]
+     * for the sequential, one-at-a-time consumer of this list.
      */
     @Query(
         "SELECT * FROM emails WHERE accountId = :accountId AND processingStatus != 'COMPLETED' " +
-            "ORDER BY receivedAt ASC"
+            "AND receivedAt >= :sinceMillis ORDER BY receivedAt ASC"
     )
-    suspend fun getUnprocessedForAccount(accountId: String): List<EmailEntity>
+    suspend fun getUnprocessedForAccount(accountId: String, sinceMillis: Long): List<EmailEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(emails: List<EmailEntity>)

@@ -45,24 +45,27 @@ class EmailRepository(
     suspend fun getById(id: String): EmailMessage? = emailDao.getById(id)?.toDomain()
 
     /**
-     * Synchronizes the most recent inbox messages for one connected account. Handles empty
-     * inboxes, expired authorization (401/403), network failures, and malformed individual
+     * Synchronizes inbox messages received within [sinceMillis] for one connected account, via
+     * Gmail's `after:` search operator — so the fetch itself respects the user's selected sync
+     * window (REQUIREMENTS change request section 4), not just processing eligibility. Handles
+     * empty inboxes, expired authorization (401/403), network failures, and malformed individual
      * messages (skipped, not fatal to the whole sync) per REQUIREMENTS.md section 6.
      *
      * Crucially: an email that already exists locally keeps its existing `processingStatus` (and
      * `isImportant`) — re-syncing never resets a COMPLETED or FAILED email back to PENDING. Only
      * genuinely new messages are inserted as PENDING.
      */
-    suspend fun syncAccount(accessToken: String, accountId: String, maxResults: Int = 25): SyncResult {
+    suspend fun syncAccount(accessToken: String, accountId: String, sinceMillis: Long, maxResults: Int = 100): SyncResult {
         val bearer = "Bearer $accessToken"
+        val afterEpochSeconds = sinceMillis / 1000
         return try {
-            val listResponse = gmailApi.listMessages(bearer, maxResults = maxResults)
+            val listResponse = gmailApi.listMessages(bearer, maxResults = maxResults, query = "in:inbox after:$afterEpochSeconds")
             if (!listResponse.isSuccessful) {
                 return listResponse.toAuthOrApiError()
             }
             val refs = listResponse.body()?.messages.orEmpty()
             if (refs.isEmpty()) {
-                return SyncResult.Success(0) // empty inbox is a valid, non-error state
+                return SyncResult.Success(0) // empty inbox (or nothing in the window) is a valid, non-error state
             }
 
             val existingById = emailDao.getByIds(refs.map { it.id }).associateBy { it.id }
