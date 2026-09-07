@@ -46,6 +46,30 @@ class ExecutiveItemRepository(
         return entity.toDomain()
     }
 
+    /**
+     * A directly user-authored item (e.g. "Add Task") — created ACCEPTED, not PROPOSED, since
+     * there's no AI proposal here for the user to review; they've already made the decision by
+     * typing it in. Immediately visible wherever items of [type] are shown (e.g. the Tasks
+     * screen's "in progress" section).
+     */
+    suspend fun createManualItem(
+        accountId: String,
+        type: ExecutiveItemType,
+        title: String,
+        description: String?,
+        dueAtMillis: Long?,
+    ): ExecutiveItem {
+        val now = System.currentTimeMillis()
+        val entity = ExecutiveItemEntity(
+            id = UUID.randomUUID().toString(), sourceEmailId = null, sourceThreadId = null,
+            accountId = accountId, type = type.name, title = title,
+            description = description, location = null, dueAtMillis = dueAtMillis,
+            state = ExecutiveItemState.ACCEPTED.name, createdAt = now, updatedAt = now, executionRef = null,
+        )
+        dao.upsert(entity)
+        return entity.toDomain()
+    }
+
     suspend fun accept(id: String): ExecutiveItem? = transition(id, ExecutiveItemState.ACCEPTED)
 
     suspend fun reject(id: String): ExecutiveItem? = transition(id, ExecutiveItemState.REJECTED)
