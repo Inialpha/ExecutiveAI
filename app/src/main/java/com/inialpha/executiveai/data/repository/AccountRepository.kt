@@ -33,8 +33,15 @@ class AccountRepository(
 
     suspend fun getAccount(id: String): Account? = accountDao.getById(id)?.toDomain()
 
-    /** Step 1 of "Add Google account": show the account chooser + base identity consent. */
+    /**
+     * Step 1 of "Add Google account": clears any remembered default-account state first (so the
+     * system account chooser actually appears rather than silently reusing whichever account was
+     * granted last), then shows the chooser + base identity consent. Existing connected accounts
+     * are never touched here — [connectNewAccount] only ever upserts the one account the user
+     * just picked.
+     */
     suspend fun connectNewAccount(authManager: GoogleAuthManager): ConnectAccountResult {
+        authManager.clearCredentialState()
         val outcome = authManager.authorize(AccountAuthScopes.BASE_IDENTITY)
         return when (outcome) {
             is AuthorizationOutcome.Success -> {

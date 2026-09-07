@@ -6,6 +6,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.credentials.ClearCredentialStateRequest
+import androidx.credentials.CredentialManager
 import com.google.android.gms.auth.api.identity.AuthorizationRequest
 import com.google.android.gms.auth.api.identity.AuthorizationResult
 import com.google.android.gms.auth.api.identity.Identity
@@ -47,6 +49,8 @@ sealed class AuthorizationOutcome {
  */
 class GoogleAuthManager(private val activity: ComponentActivity) {
 
+    private val credentialManager = CredentialManager.create(activity)
+
     private var pendingContinuation: kotlin.coroutines.Continuation<Intent?>? = null
 
     private val launcher: ActivityResultLauncher<IntentSenderRequest> =
@@ -56,10 +60,29 @@ class GoogleAuthManager(private val activity: ComponentActivity) {
         }
 
     /**
+     * Clears the app's remembered default-account state so the *next* [authorize] call shows the
+     * account chooser again instead of silently reusing whichever account was granted last time.
+     * Per the official guidance (developer.android.com/identity/authorization): "any subsequent
+     * calls for authorization use this default account. To force showing the account selector,
+     * sign out the user from the app using the clearCredentialState() API from Credential
+     * Manager." Call this immediately before starting an "Add another Google account" flow — see
+     * [com.inialpha.executiveai.data.repository.AccountRepository.connectNewAccount].
+     */
+    suspend fun clearCredentialState() {
+        try {
+            credentialManager.clearCredentialState(ClearCredentialStateRequest())
+        } catch (e: Exception) {
+            // Best-effort: if this fails, authorize() below may still silently reuse the previous
+            // account, but we don't want a clear-state failure to block "Add account" entirely.
+        }
+    }
+
+    /**
      * Requests [scopes] for the signed-in Google account. If [accountEmail] is provided, targets
      * that specific device account (used to silently refresh a token for an already-connected
      * Executive AI account); if null, the system account chooser is shown, which is how a *new*
-     * account gets connected.
+     * account gets connected — call [clearCredentialState] first in that case, or Android may
+     * silently reuse the previously granted account without ever showing the chooser.
      */
     suspend fun authorize(scopes: List<String>, accountEmail: String? = null): AuthorizationOutcome {
         val requestBuilder = AuthorizationRequest.builder()
