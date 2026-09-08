@@ -122,7 +122,7 @@ class AccountsViewModel(private val container: AppContainer) : ViewModel() {
                         // Process this account's queue sequentially before moving to the next
                         // account — gathering (above) already persisted every fetched email
                         // regardless of what happens here.
-                        container.insightRepository.processAllPendingForAccount(account.id, sinceMillis)
+                        container.insightRepository.processAllPendingForAccount(account.id, account.displayName ?: account.email, sinceMillis)
                             .collect { progress ->
                                 _state.value = _state.value.copy(
                                     syncProgress = progress,
