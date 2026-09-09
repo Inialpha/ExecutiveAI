@@ -99,6 +99,7 @@ fun AccountsScreen() {
         SyncProgressDialog(
             progress = progress,
             accountLabel = state.syncingAccountLabel,
+            lastResponseDebugInfo = state.lastResponseDebugInfo,
             onDismiss = { viewModel.dismissSyncProgress() },
         )
     }

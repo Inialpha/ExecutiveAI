@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.inialpha.executiveai.data.auth.AccountAuthScopes
 import com.inialpha.executiveai.data.auth.AuthorizationOutcome
 import com.inialpha.executiveai.data.repository.ConnectAccountResult
+import com.inialpha.executiveai.data.repository.EmailProcessingDebugInfo
 import com.inialpha.executiveai.data.repository.EmailProcessingPhase
 import com.inialpha.executiveai.data.repository.EmailProcessingProgress
 import com.inialpha.executiveai.di.AppContainer
@@ -30,6 +31,13 @@ data class AccountsUiState(
     val syncProgress: EmailProcessingProgress? = null,
     /** Which account's progress is currently shown, for a "Account X of Y" label alongside [syncProgress]. */
     val syncingAccountLabel: String? = null,
+    /**
+     * The most recent backend response actually received (debug builds only) — deliberately kept
+     * separate from [syncProgress].debugInfo, which gets reset the instant the *next* email's
+     * request starts preparing. This stays on screen until a genuinely new response arrives, per
+     * the "response should remain visible until the next response arrives" requirement.
+     */
+    val lastResponseDebugInfo: EmailProcessingDebugInfo? = null,
 )
 
 /**
@@ -89,7 +97,7 @@ class AccountsViewModel(private val container: AppContainer) : ViewModel() {
     }
 
     fun dismissSyncProgress() {
-        _state.value = _state.value.copy(syncProgress = null, syncingAccountLabel = null)
+        _state.value = _state.value.copy(syncProgress = null, syncingAccountLabel = null, lastResponseDebugInfo = null)
     }
 
     /**
@@ -105,7 +113,7 @@ class AccountsViewModel(private val container: AppContainer) : ViewModel() {
     fun syncAll() {
         val authManager = container.googleAuthManager ?: return
         viewModelScope.launch {
-            _state.value = _state.value.copy(isSyncing = true, statusMessage = null)
+            _state.value = _state.value.copy(isSyncing = true, statusMessage = null, lastResponseDebugInfo = null)
             val accounts = _state.value.accounts
             val window = container.syncSettingsRepository.observeSyncWindow().first()
             val sinceMillis = System.currentTimeMillis() - window.toMillis()
@@ -124,9 +132,16 @@ class AccountsViewModel(private val container: AppContainer) : ViewModel() {
                         // regardless of what happens here.
                         container.insightRepository.processAllPendingForAccount(account.id, account.displayName ?: account.email, sinceMillis)
                             .collect { progress ->
+                                // A fresh backend response only exists on events from RESPONSE_RECEIVED
+                                // onward that actually carry a raw body — carry it forward as the
+                                // "last response" until a later event replaces it with a new one, so
+                                // it survives into the next email's REQUEST_PREPARED/REQUEST_SENT events
+                                // rather than being wiped the instant the next request starts.
+                                val freshResponse = progress.debugInfo?.takeIf { it.rawResponseBody != null }
                                 _state.value = _state.value.copy(
                                     syncProgress = progress,
                                     syncingAccountLabel = account.displayName ?: account.email,
+                                    lastResponseDebugInfo = freshResponse ?: _state.value.lastResponseDebugInfo,
                                 )
                                 if (progress.phase == EmailProcessingPhase.COMPLETE) {
                                     totalProcessed += progress.succeededCount

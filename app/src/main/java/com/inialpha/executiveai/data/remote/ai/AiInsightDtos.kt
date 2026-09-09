@@ -78,3 +78,14 @@ data class InsightResponseDto(
     @SerialName("deadlines") val deadlines: List<InsightDeadlineDto> = emptyList(),
     @SerialName("reminders") val reminders: List<InsightReminderDto> = emptyList(),
 )
+
+/**
+ * The actual confirmed wire shape (from a real captured backend response, 2026-09): the backend
+ * wraps its result(s) in a top-level object with an "emails" array — not a bare JSON array and
+ * not a bare single object, both of which were previously-tried fallback guesses. See
+ * InsightRepository.parseResponseBody, which now tries this shape first.
+ */
+@Serializable
+data class InsightBatchResponseDto(
+    @SerialName("emails") val emails: List<InsightResponseDto> = emptyList(),
+)

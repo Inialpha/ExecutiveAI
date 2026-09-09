@@ -197,16 +197,23 @@ class InsightRepository(
     /** Tries the documented single-object shape first, then falls back to a JSON array, since the exact
      * wire shape for a one-email request was unconfirmed at the time this fallback was written — see
      * ARCHITECTURE.md. Returns null (never throws) if neither shape parses. */
+    /** Tries the confirmed real shape first — `{"emails": [...]}` — then falls back to a bare
+     * array or a bare single object in case the backend's exact envelope varies by code path.
+     * Returns null (never throws) only if none of the three shapes parse. */
     private fun parseResponseBody(bodyText: String): List<InsightResponseDto>? {
-        runCatching { return listOf(debugJson.decodeFromString(InsightResponseDto.serializer(), bodyText)) }
+        runCatching { return debugJson.decodeFromString(InsightBatchResponseDto.serializer(), bodyText).emails }
         runCatching { return debugJson.decodeFromString(kotlinx.serialization.builtins.ListSerializer(InsightResponseDto.serializer()), bodyText) }
+        runCatching { return listOf(debugJson.decodeFromString(InsightResponseDto.serializer(), bodyText)) }
         return null
     }
 
     private fun lastParseError(bodyText: String): String {
-        val singleAttempt = runCatching { debugJson.decodeFromString(InsightResponseDto.serializer(), bodyText) }
+        val batchAttempt = runCatching { debugJson.decodeFromString(InsightBatchResponseDto.serializer(), bodyText) }
         val listAttempt = runCatching { debugJson.decodeFromString(kotlinx.serialization.builtins.ListSerializer(InsightResponseDto.serializer()), bodyText) }
-        return "As single object: ${singleAttempt.exceptionOrNull()?.message}\nAs array: ${listAttempt.exceptionOrNull()?.message}"
+        val singleAttempt = runCatching { debugJson.decodeFromString(InsightResponseDto.serializer(), bodyText) }
+        return "As {\"emails\": [...]}: ${batchAttempt.exceptionOrNull()?.message}\n" +
+            "As array: ${listAttempt.exceptionOrNull()?.message}\n" +
+            "As single object: ${singleAttempt.exceptionOrNull()?.message}"
     }
 
     private fun debugRequestJson(request: InsightRequestDto): String {

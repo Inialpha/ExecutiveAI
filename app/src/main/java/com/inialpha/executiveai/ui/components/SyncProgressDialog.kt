@@ -21,7 +21,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
@@ -39,16 +38,21 @@ import com.inialpha.executiveai.ui.theme.TextSecondary
  * which one is currently being processed, running success/failure counts, and a per-item
  * success/failure acknowledgment before moving on. See REQUIREMENTS change request sections 5-6.
  *
- * When [EmailProcessingProgress.debugInfo] is present (debug builds only — see EmailDebugConfig),
- * a "Technical debug information" section is appended below the normal user-facing progress,
- * showing the exact request sent, HTTP status, raw response body, parse result, and — for a
- * failed email — precisely which stage it failed at and why. This section is purely additive;
- * nothing about the normal progress display above it changes when debug info is absent.
+ * When debug info is present (debug builds only — see EmailDebugConfig), two additive sections
+ * appear below the normal user-facing progress:
+ *  - "Current request" from [progress]'s own debugInfo — the request just sent for whichever
+ *    email is currently in flight, plus that email's failure stage/reason if it failed.
+ *  - "Last response received" from [lastResponseDebugInfo] — deliberately a *separate* value
+ *    from progress.debugInfo, because progress.debugInfo gets reset the instant the next email's
+ *    request starts preparing. This section only changes when a genuinely new response arrives,
+ *    so the previous response stays fully visible for inspection right up until that happens —
+ *    it does not get blanked out just because the next request has started.
  */
 @Composable
 fun SyncProgressDialog(
     progress: EmailProcessingProgress,
     accountLabel: String?,
+    lastResponseDebugInfo: EmailProcessingDebugInfo?,
     onDismiss: () -> Unit,
 ) {
     val isComplete = progress.phase == EmailProcessingPhase.COMPLETE
@@ -58,7 +62,7 @@ fun SyncProgressDialog(
         onDismissRequest = { if (isComplete) onDismiss() },
         title = { Text("Email Synchronization") },
         text = {
-            Column(Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState())) {
+            Column(Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState())) {
                 accountLabel?.let {
                     Text(it, color = TextSecondary, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(bottom = 8.dp))
                 }
@@ -112,7 +116,19 @@ fun SyncProgressDialog(
 
                     progress.debugInfo?.let { debug ->
                         Spacer(Modifier.height(20.dp))
-                        DebugSection(debug)
+                        Text("Technical debug information", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                        Text(
+                            "(development-only trace — see EmailDebugConfig)",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary,
+                            modifier = Modifier.padding(bottom = 8.dp),
+                        )
+                        CurrentRequestSection(debug)
+                    }
+
+                    lastResponseDebugInfo?.let { response ->
+                        Spacer(Modifier.height(16.dp))
+                        LastResponseSection(response)
                     }
                 }
             }
@@ -137,32 +153,46 @@ private fun phaseAcknowledgment(phase: EmailProcessingPhase): Pair<String, Color
     else -> "Processing…" to TextSecondary
 }
 
+/** The request just sent for whichever email is currently in flight, plus its failure info if any. */
 @Composable
-private fun DebugSection(debug: EmailProcessingDebugInfo) {
-    Text("Technical debug information", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-    Text("(development-only trace — see EmailDebugConfig)", style = MaterialTheme.typography.bodySmall, color = TextSecondary, modifier = Modifier.padding(bottom = 8.dp))
-
+private fun CurrentRequestSection(debug: EmailProcessingDebugInfo) {
     if (debug.failureStage != FailureStage.NONE) {
         DebugRow("FAILED AT", debug.failureStage.name.replace('_', ' '), color = MaterialTheme.colorScheme.error)
         debug.failureReason?.let { DebugRow("REASON", it, color = MaterialTheme.colorScheme.error) }
     }
-
-    debug.httpStatusCode?.let { DebugRow("HTTP STATUS", it.toString()) }
-    debug.httpSuccess?.let { DebugRow("HTTP SUCCESS", it.toString()) }
-
     if (debug.requestBodyJson.isNotBlank()) {
         Text("Request sent:", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
         MonospaceBlock(debug.requestBodyJson)
     }
-    debug.rawResponseBody?.let {
+}
+
+/**
+ * Sticky: shows whatever the *last actually-received* backend response was. Stays on screen,
+ * unchanged, through the next email's request-prepared/request-sent phases — only replaced when
+ * a new response genuinely arrives (see AccountsViewModel.syncAll's collect block).
+ */
+@Composable
+private fun LastResponseSection(response: EmailProcessingDebugInfo) {
+    Text("Last response received", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+    Text(
+        "(stays visible until the next response arrives)",
+        style = MaterialTheme.typography.bodySmall,
+        color = TextSecondary,
+        modifier = Modifier.padding(bottom = 8.dp),
+    )
+
+    response.httpStatusCode?.let { DebugRow("HTTP STATUS", it.toString()) }
+    response.httpSuccess?.let { DebugRow("HTTP SUCCESS", it.toString()) }
+
+    response.rawResponseBody?.let {
         Text("Raw response body:", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
         MonospaceBlock(it)
     }
-    debug.parsedResultJson?.let {
+    response.parsedResultJson?.let {
         Text("Parsed result:", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
         MonospaceBlock(it)
     }
-    debug.parseErrorMessage?.let {
+    response.parseErrorMessage?.let {
         Text("Parse error:", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp))
         MonospaceBlock(it)
     }
