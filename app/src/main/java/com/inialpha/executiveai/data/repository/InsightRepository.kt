@@ -10,6 +10,7 @@ import com.inialpha.executiveai.data.local.entity.InsightEntity
 import com.inialpha.executiveai.data.remote.NetworkFactory
 import com.inialpha.executiveai.data.remote.ai.AiInsightApi
 import com.inialpha.executiveai.data.remote.ai.EmailPayloadDto
+import com.inialpha.executiveai.data.remote.ai.InsightBatchResponseDto
 import com.inialpha.executiveai.data.remote.ai.InsightRequestDto
 import com.inialpha.executiveai.data.remote.ai.InsightResponseDto
 import com.inialpha.executiveai.domain.model.EmailInsight
