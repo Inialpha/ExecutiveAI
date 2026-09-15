@@ -2,12 +2,9 @@ package com.inialpha.executiveai.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.inialpha.executiveai.data.auth.AccountAuthScopes
-import com.inialpha.executiveai.data.auth.AuthorizationOutcome
 import com.inialpha.executiveai.data.repository.ConnectAccountResult
-import com.inialpha.executiveai.data.repository.EmailProcessingDebugInfo
-import com.inialpha.executiveai.data.repository.EmailProcessingPhase
 import com.inialpha.executiveai.data.repository.EmailProcessingProgress
+import com.inialpha.executiveai.data.repository.SyncEvent
 import com.inialpha.executiveai.di.AppContainer
 import com.inialpha.executiveai.domain.model.Account
 import com.inialpha.executiveai.domain.model.SyncWindow
@@ -15,7 +12,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
@@ -29,20 +25,16 @@ data class AccountsUiState(
     val syncWindow: SyncWindow = SyncWindow.DEFAULT,
     /** Live per-email progress for the account currently being processed — drives the sync progress dialog. */
     val syncProgress: EmailProcessingProgress? = null,
-    /** Which account's progress is currently shown, for a "Account X of Y" label alongside [syncProgress]. */
+    /** Which account's progress is currently shown, for a label alongside [syncProgress]. */
     val syncingAccountLabel: String? = null,
-    /**
-     * The most recent backend response actually received (debug builds only) — deliberately kept
-     * separate from [syncProgress].debugInfo, which gets reset the instant the *next* email's
-     * request starts preparing. This stays on screen until a genuinely new response arrives, per
-     * the "response should remain visible until the next response arrives" requirement.
-     */
-    val lastResponseDebugInfo: EmailProcessingDebugInfo? = null,
 )
 
 /**
  * Connected Accounts screen: add / view / select-toggle / synchronize / disconnect, all backed
- * by real [com.inialpha.executiveai.data.auth.GoogleAuthManager] + repository calls — never mocked.
+ * by real [com.inialpha.executiveai.data.auth.GoogleAuthManager] + repository calls — never
+ * mocked. Account management only; the actual sync orchestration lives in
+ * [com.inialpha.executiveai.data.repository.SyncCoordinator], shared with the Emails screen's
+ * own "Sync Emails" action so the two never duplicate that logic.
  */
 class AccountsViewModel(private val container: AppContainer) : ViewModel() {
 
@@ -97,77 +89,27 @@ class AccountsViewModel(private val container: AppContainer) : ViewModel() {
     }
 
     fun dismissSyncProgress() {
-        _state.value = _state.value.copy(syncProgress = null, syncingAccountLabel = null, lastResponseDebugInfo = null)
+        _state.value = _state.value.copy(syncProgress = null, syncingAccountLabel = null)
     }
 
-    /**
-     * Synchronizes Gmail + Calendar for every account with sync enabled, within the user's
-     * currently selected [SyncWindow] (see Settings). Gathering is decoupled from processing: for
-     * each account, Gmail messages received within the window are fetched and persisted first
-     * (regardless of whether AI processing succeeds), then that account's PENDING/FAILED emails
-     * *within the window* are processed sequentially, one at a time, oldest first — each result
-     * saved immediately, with live progress streamed into [AccountsUiState.syncProgress] for the
-     * UI to display. If processing is interrupted partway, whatever completed stays completed;
-     * the rest is picked up again on the next call to this function.
-     */
     fun syncAll() {
         val authManager = container.googleAuthManager ?: return
         viewModelScope.launch {
-            _state.value = _state.value.copy(isSyncing = true, statusMessage = null, lastResponseDebugInfo = null)
-            val accounts = _state.value.accounts
-            val window = container.syncSettingsRepository.observeSyncWindow().first()
-            val sinceMillis = System.currentTimeMillis() - window.toMillis()
-
-            var anyFailure = false
-            var totalProcessed = 0
-            var totalFailed = 0
-            for (account in accounts) {
-                if (account.isGmailSyncEnabled) {
-                    val outcome = authManager.authorize(listOf(AccountAuthScopes.GMAIL_READONLY), account.email)
-                    if (outcome is AuthorizationOutcome.Success) {
-                        container.emailRepository.syncAccount(outcome.accessToken, account.id, sinceMillis)
-                        container.accountRepository.markGmailSynced(account.id, System.currentTimeMillis())
-                        // Process this account's queue sequentially before moving to the next
-                        // account — gathering (above) already persisted every fetched email
-                        // regardless of what happens here.
-                        container.insightRepository.processAllPendingForAccount(account.id, account.displayName ?: account.email, sinceMillis)
-                            .collect { progress ->
-                                // A fresh backend response only exists on events from RESPONSE_RECEIVED
-                                // onward that actually carry a raw body — carry it forward as the
-                                // "last response" until a later event replaces it with a new one, so
-                                // it survives into the next email's REQUEST_PREPARED/REQUEST_SENT events
-                                // rather than being wiped the instant the next request starts.
-                                val freshResponse = progress.debugInfo?.takeIf { it.rawResponseBody != null }
-                                _state.value = _state.value.copy(
-                                    syncProgress = progress,
-                                    syncingAccountLabel = account.displayName ?: account.email,
-                                    lastResponseDebugInfo = freshResponse ?: _state.value.lastResponseDebugInfo,
-                                )
-                                if (progress.phase == EmailProcessingPhase.COMPLETE) {
-                                    totalProcessed += progress.succeededCount
-                                    totalFailed += progress.failedCount
-                                }
-                            }
-                    } else {
-                        anyFailure = true
-                    }
-                }
-                if (account.isCalendarSyncEnabled) {
-                    val outcome = authManager.authorize(listOf(AccountAuthScopes.CALENDAR_READONLY), account.email)
-                    if (outcome is AuthorizationOutcome.Success) {
-                        container.calendarRepository.syncAccount(outcome.accessToken, account.id)
-                        container.accountRepository.markCalendarSynced(account.id, System.currentTimeMillis())
-                    } else {
-                        anyFailure = true
+            _state.value = _state.value.copy(isSyncing = true, statusMessage = null)
+            container.syncCoordinator.syncAll(authManager).collect { event ->
+                when (event) {
+                    is SyncEvent.EmailProgress ->
+                        _state.value = _state.value.copy(syncProgress = event.progress, syncingAccountLabel = event.accountLabel)
+                    is SyncEvent.Finished -> {
+                        val statusMessage = when {
+                            event.anyFailure -> "Some accounts need re-authorization."
+                            event.totalFailed > 0 -> "Synced. ${event.totalProcessed} email(s) processed, ${event.totalFailed} failed and will retry next sync."
+                            else -> "Synced."
+                        }
+                        _state.value = _state.value.copy(isSyncing = false, statusMessage = statusMessage)
                     }
                 }
             }
-            val statusMessage = when {
-                anyFailure -> "Some accounts need re-authorization."
-                totalFailed > 0 -> "Synced. $totalProcessed email(s) processed, $totalFailed failed and will retry next sync."
-                else -> "Synced."
-            }
-            _state.value = _state.value.copy(isSyncing = false, statusMessage = statusMessage)
         }
     }
 }

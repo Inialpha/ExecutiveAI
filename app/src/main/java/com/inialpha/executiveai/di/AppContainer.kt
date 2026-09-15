@@ -10,6 +10,7 @@ import com.inialpha.executiveai.data.repository.CalendarRepository
 import com.inialpha.executiveai.data.repository.EmailRepository
 import com.inialpha.executiveai.data.repository.ExecutiveItemRepository
 import com.inialpha.executiveai.data.repository.InsightRepository
+import com.inialpha.executiveai.data.repository.SyncCoordinator
 import com.inialpha.executiveai.data.settings.SyncSettingsRepository
 import com.inialpha.executiveai.voice.SpeechRecognizerManager
 
@@ -43,6 +44,7 @@ class AppContainer(context: Context) {
     val calendarRepository = CalendarRepository(database.calendarEventDao())
     val executiveItemRepository = ExecutiveItemRepository(database.executiveItemDao())
     val syncSettingsRepository = SyncSettingsRepository(context.applicationContext)
+    val syncCoordinator = SyncCoordinator(accountRepository, emailRepository, calendarRepository, insightRepository, syncSettingsRepository)
 
     val speechRecognizerManager = SpeechRecognizerManager(context.applicationContext)
 

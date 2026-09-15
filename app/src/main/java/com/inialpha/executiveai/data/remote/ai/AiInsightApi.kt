@@ -8,10 +8,10 @@ import retrofit2.http.POST
 interface AiInsightApi {
     /**
      * Sends exactly one email per request (see InsightRepository). Returns the raw
-     * [ResponseBody] rather than an auto-converted DTO — deliberately, for now: this lets
-     * InsightRepository capture the exact bytes the backend sent *before* attempting to parse
-     * them, so a schema mismatch shows the real raw JSON instead of just an opaque exception.
-     * See InsightRepository's EmailProcessingDebugInfo for where that raw text is surfaced.
+     * [ResponseBody] rather than an auto-converted DTO — this lets InsightRepository try the
+     * response against several known/possible schemas (a confirmed real quirk of this backend:
+     * results arrive wrapped as `{"emails": [...]}`) rather than assuming one fixed shape and
+     * failing outright if it doesn't match. See InsightRepository.parseResponseBody.
      */
     @POST("extract-insights-from-emails/")
     suspend fun extractInsightsRaw(@Body request: InsightRequestDto): Response<ResponseBody>

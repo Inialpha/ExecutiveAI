@@ -20,4 +20,7 @@ interface InsightDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(insights: List<InsightEntity>)
+
+    @Query("DELETE FROM email_insights WHERE emailId = :emailId")
+    suspend fun deleteByEmailId(emailId: String)
 }

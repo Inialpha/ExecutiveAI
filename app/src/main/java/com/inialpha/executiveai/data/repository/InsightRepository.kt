@@ -1,5 +1,6 @@
 package com.inialpha.executiveai.data.repository
 
+import android.util.Log
 import com.inialpha.executiveai.data.local.InsightJson
 import com.inialpha.executiveai.data.local.dao.EmailDao
 import com.inialpha.executiveai.data.local.dao.ExecutiveItemDao
@@ -31,6 +32,8 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.UUID
 
+private const val TAG = "InsightRepository"
+
 /**
  * Bridges Android to the EmailManager AI gateway — **one email at a time**, oldest received
  * first, per REQUIREMENTS.md's sequential-processing flow. The next email is never sent until
@@ -39,12 +42,12 @@ import java.util.UUID
  * successful result is visible in the rest of the app (e.g. the Emails screen) right away, and
  * an interruption or a single failure never loses or rolls back what already succeeded.
  *
- * Every stage of a single email's journey — request built, request sent, HTTP response, raw
- * body, parse attempt, validation, persistence — is traced through [EmailProcessingProgress] /
- * [EmailProcessingDebugInfo] when [EmailDebugConfig.ENABLED], specifically so a "backend
- * succeeded but Android recorded a failure" mismatch can be pinpointed to an exact stage instead
- * of collapsing into one opaque FAILED. See EmailDebugConfig's doc comment for how to turn this
- * off later.
+ * Response parsing tries the confirmed real wire shape (`{"emails": [...]}`) first, then a bare
+ * array, then a bare single object, as a defensive fallback — this was empirically confirmed
+ * against a real captured backend response and should not be changed casually; see
+ * [parseResponseBody]. Failures are logged (not shown in the UI — the verbose request/response
+ * debug presentation used to diagnose the original parsing mismatch has been removed now that
+ * it's served its purpose) so they remain diagnosable via Logcat if a new issue appears.
  */
 class InsightRepository(
     private val emailDao: EmailDao,
@@ -52,26 +55,24 @@ class InsightRepository(
     private val executiveItemDao: ExecutiveItemDao,
 ) {
     private val api: AiInsightApi = NetworkFactory.retrofit(AiInsightApi.BASE_URL).create(AiInsightApi::class.java)
-
-    /** Used only for debug-trace (de)serialization here — separate from NetworkFactory's converter
-     * so a parse failure can be caught and inspected directly, with the raw text preserved. */
-    private val debugJson = Json { ignoreUnknownKeys = true; isLenient = true; prettyPrint = true }
+    private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
     fun observeAll(): Flow<List<EmailInsight>> = insightDao.observeAll().map { list -> list.map { it.toDomain() } }
 
     suspend fun getForEmail(emailId: String): EmailInsight? = insightDao.getByEmailId(emailId)?.toDomain()
 
+    suspend fun deleteForEmail(emailId: String) = insightDao.deleteByEmailId(emailId)
+
     /**
      * Processes every PENDING/FAILED email for [accountId] received at or after [sinceMillis]
      * (the currently selected sync window), strictly one at a time, oldest received first —
      * awaiting each result before starting the next, and emitting an [EmailProcessingProgress]
-     * event at every stage so the UI can show real progress (and, in debug builds, the full
-     * request/response/parse trace) instead of a generic spinner. A per-email failure marks that
-     * email FAILED and continues to the next one rather than aborting the whole run, so a single
-     * bad email can't block everything behind it; it simply remains retryable (if still within
-     * the window) on the next synchronization. Safe to call repeatedly / resume after an
-     * interruption: it always just re-reads whatever is left in PENDING/FAILED state within the
-     * window.
+     * event before and after each one so the UI can show real progress instead of a generic
+     * spinner. A per-email failure marks that email FAILED and continues to the next one rather
+     * than aborting the whole run, so a single bad email can't block everything behind it; it
+     * simply remains retryable (if still within the window) on the next synchronization. Safe to
+     * call repeatedly / resume after an interruption: it always just re-reads whatever is left in
+     * PENDING/FAILED state within the window.
      */
     fun processAllPendingForAccount(accountId: String, accountLabel: String, sinceMillis: Long): Flow<EmailProcessingProgress> = flow {
         val queue = emailDao.getUnprocessedForAccount(accountId, sinceMillis)
@@ -83,145 +84,93 @@ class InsightRepository(
             val email = queue[index]
             val position = index + 1
             val label = emailLabel(email)
-            var debug = if (EmailDebugConfig.ENABLED) EmailProcessingDebugInfo(emailId = email.id, accountLabel = accountLabel) else null
+            emit(EmailProcessingProgress(queue.size, position, label, EmailProcessingPhase.PROCESSING, succeeded, failed))
 
-            suspend fun report(phase: EmailProcessingPhase) {
-                emit(EmailProcessingProgress(queue.size, position, label, phase, succeeded, failed, debug))
-            }
-
-            // --- 1. Request prepared ---
-            report(EmailProcessingPhase.STARTED)
-            val request = InsightRequestDto(
-                currentDatetime = currentIsoDatetimeWithOffset(),
-                emails = listOf(
-                    EmailPayloadDto(
-                        id = email.id, threadId = email.threadId, sender = email.sender,
-                        subject = email.subject, content = email.content, snippet = email.snippet,
-                    ),
-                ),
-            )
-            if (debug != null) {
-                debug = debug.copy(requestBodyJson = debugRequestJson(request))
-            }
-            report(EmailProcessingPhase.REQUEST_PREPARED)
-
-            // --- 2. Request sent / HTTP response received ---
-            val response = try {
-                api.extractInsightsRaw(request)
-            } catch (e: IOException) {
-                debug = debug?.copy(failureStage = FailureStage.REQUEST_SEND, failureReason = e.message ?: "Network error contacting the AI gateway")
-                emailDao.updateProcessingStatus(email.id, EmailProcessingStatus.FAILED.name)
+            val success = processSingleEmail(accountId, email)
+            if (success) {
+                succeeded++
+                emit(EmailProcessingProgress(queue.size, position, label, EmailProcessingPhase.SUCCEEDED, succeeded, failed))
+            } else {
                 failed++
-                report(EmailProcessingPhase.FAILED)
-                continue
-            } catch (e: Exception) {
-                debug = debug?.copy(failureStage = FailureStage.REQUEST_SEND, failureReason = e.message ?: "Unexpected error sending the request")
-                emailDao.updateProcessingStatus(email.id, EmailProcessingStatus.FAILED.name)
-                failed++
-                report(EmailProcessingPhase.FAILED)
-                continue
+                emit(EmailProcessingProgress(queue.size, position, label, EmailProcessingPhase.FAILED, succeeded, failed))
             }
-            report(EmailProcessingPhase.REQUEST_SENT)
-
-            val httpStatus = response.code()
-            val httpSuccess = response.isSuccessful
-            val bodyText = try {
-                if (httpSuccess) response.body()?.string() else response.errorBody()?.string()
-            } catch (e: IOException) {
-                null
-            }
-            debug = debug?.copy(httpStatusCode = httpStatus, httpSuccess = httpSuccess, rawResponseBody = bodyText?.take(EmailDebugConfig.MAX_TEXT_LENGTH))
-            report(EmailProcessingPhase.RESPONSE_RECEIVED)
-
-            if (!httpSuccess) {
-                debug = debug?.copy(failureStage = FailureStage.HTTP_ERROR, failureReason = "HTTP $httpStatus")
-                emailDao.updateProcessingStatus(email.id, EmailProcessingStatus.FAILED.name)
-                failed++
-                report(EmailProcessingPhase.FAILED)
-                continue
-            }
-
-            // --- 3. Response parsed ---
-            report(EmailProcessingPhase.PARSING_RESPONSE)
-            if (bodyText.isNullOrBlank()) {
-                debug = debug?.copy(failureStage = FailureStage.RESPONSE_PARSING, failureReason = "Response body was empty")
-                emailDao.updateProcessingStatus(email.id, EmailProcessingStatus.FAILED.name)
-                failed++
-                report(EmailProcessingPhase.FAILED)
-                continue
-            }
-
-            val parsedResults: List<InsightResponseDto>? = parseResponseBody(bodyText)
-            if (parsedResults == null) {
-                val errorMessage = lastParseError(bodyText)
-                debug = debug?.copy(failureStage = FailureStage.RESPONSE_PARSING, parseErrorMessage = errorMessage, failureReason = errorMessage)
-                emailDao.updateProcessingStatus(email.id, EmailProcessingStatus.FAILED.name)
-                failed++
-                report(EmailProcessingPhase.FAILED)
-                continue
-            }
-
-            // --- 4. Success/failure determined (schema validation: does a result for THIS email exist?) ---
-            val result = parsedResults.firstOrNull { it.id == email.id } ?: parsedResults.singleOrNull()
-            if (result == null) {
-                debug = debug?.copy(
-                    failureStage = FailureStage.SCHEMA_VALIDATION,
-                    failureReason = "Parsed successfully, but no result matched email id ${email.id} (parsed ${parsedResults.size} result(s))",
-                )
-                emailDao.updateProcessingStatus(email.id, EmailProcessingStatus.FAILED.name)
-                failed++
-                report(EmailProcessingPhase.FAILED)
-                continue
-            }
-            debug = debug?.copy(parsedResultJson = debugJson.encodeToString(InsightResponseDto.serializer(), result))
-
-            // --- 5. Result saved ---
-            report(EmailProcessingPhase.SAVING_RESULT)
-            try {
-                persistInsight(accountId, email, result)
-                emailDao.updateProcessingResult(email.id, EmailProcessingStatus.COMPLETED.name, result.isImportant)
-            } catch (e: Exception) {
-                debug = debug?.copy(failureStage = FailureStage.LOCAL_PERSISTENCE, failureReason = e.message ?: "Failed to save the result locally")
-                emailDao.updateProcessingStatus(email.id, EmailProcessingStatus.FAILED.name)
-                failed++
-                report(EmailProcessingPhase.FAILED)
-                continue
-            }
-
-            succeeded++
-            report(EmailProcessingPhase.SUCCEEDED)
         }
 
         emit(EmailProcessingProgress(queue.size, queue.size, "", EmailProcessingPhase.COMPLETE, succeeded, failed))
     }
 
-    /** Tries the documented single-object shape first, then falls back to a JSON array, since the exact
-     * wire shape for a one-email request was unconfirmed at the time this fallback was written — see
-     * ARCHITECTURE.md. Returns null (never throws) if neither shape parses. */
+    /** Sends exactly one email to the AI gateway and persists the outcome (success or failure) immediately. */
+    private suspend fun processSingleEmail(accountId: String, email: EmailEntity): Boolean {
+        val request = InsightRequestDto(
+            currentDatetime = currentIsoDatetimeWithOffset(),
+            emails = listOf(
+                EmailPayloadDto(
+                    id = email.id, threadId = email.threadId, sender = email.sender,
+                    subject = email.subject, content = email.content, snippet = email.snippet,
+                ),
+            ),
+        )
+
+        val response = try {
+            api.extractInsightsRaw(request)
+        } catch (e: IOException) {
+            markFailed(email.id, "network error sending request: ${e.message}")
+            return false
+        } catch (e: Exception) {
+            markFailed(email.id, "unexpected error sending request: ${e.message}")
+            return false
+        }
+
+        if (!response.isSuccessful) {
+            markFailed(email.id, "HTTP ${response.code()}")
+            return false
+        }
+
+        val bodyText = try {
+            response.body()?.string()
+        } catch (e: IOException) {
+            null
+        }
+        if (bodyText.isNullOrBlank()) {
+            markFailed(email.id, "empty response body")
+            return false
+        }
+
+        val parsedResults = parseResponseBody(bodyText)
+        if (parsedResults == null) {
+            markFailed(email.id, "response did not match any known schema")
+            return false
+        }
+
+        val result = parsedResults.firstOrNull { it.id == email.id } ?: parsedResults.singleOrNull()
+        if (result == null) {
+            markFailed(email.id, "no result matched email id ${email.id} (parsed ${parsedResults.size} result(s))")
+            return false
+        }
+
+        return try {
+            persistInsight(accountId, email, result)
+            emailDao.updateProcessingResult(email.id, EmailProcessingStatus.COMPLETED.name, result.isImportant)
+            true
+        } catch (e: Exception) {
+            markFailed(email.id, "failed to save result locally: ${e.message}")
+            false
+        }
+    }
+
+    private suspend fun markFailed(emailId: String, reason: String) {
+        Log.w(TAG, "Email $emailId processing FAILED: $reason")
+        emailDao.updateProcessingStatus(emailId, EmailProcessingStatus.FAILED.name)
+    }
+
     /** Tries the confirmed real shape first — `{"emails": [...]}` — then falls back to a bare
-     * array or a bare single object in case the backend's exact envelope varies by code path.
+     * array or a bare single object, in case the backend's exact envelope varies by code path.
      * Returns null (never throws) only if none of the three shapes parse. */
     private fun parseResponseBody(bodyText: String): List<InsightResponseDto>? {
-        runCatching { return debugJson.decodeFromString(InsightBatchResponseDto.serializer(), bodyText).emails }
-        runCatching { return debugJson.decodeFromString(kotlinx.serialization.builtins.ListSerializer(InsightResponseDto.serializer()), bodyText) }
-        runCatching { return listOf(debugJson.decodeFromString(InsightResponseDto.serializer(), bodyText)) }
+        runCatching { return json.decodeFromString(InsightBatchResponseDto.serializer(), bodyText).emails }
+        runCatching { return json.decodeFromString(kotlinx.serialization.builtins.ListSerializer(InsightResponseDto.serializer()), bodyText) }
+        runCatching { return listOf(json.decodeFromString(InsightResponseDto.serializer(), bodyText)) }
         return null
-    }
-
-    private fun lastParseError(bodyText: String): String {
-        val batchAttempt = runCatching { debugJson.decodeFromString(InsightBatchResponseDto.serializer(), bodyText) }
-        val listAttempt = runCatching { debugJson.decodeFromString(kotlinx.serialization.builtins.ListSerializer(InsightResponseDto.serializer()), bodyText) }
-        val singleAttempt = runCatching { debugJson.decodeFromString(InsightResponseDto.serializer(), bodyText) }
-        return "As {\"emails\": [...]}: ${batchAttempt.exceptionOrNull()?.message}\n" +
-            "As array: ${listAttempt.exceptionOrNull()?.message}\n" +
-            "As single object: ${singleAttempt.exceptionOrNull()?.message}"
-    }
-
-    private fun debugRequestJson(request: InsightRequestDto): String {
-        // Redact/truncate email body content in the debug trace only — the real request sent over
-        // the wire (above) is unaffected. Per REQUIREMENTS: "be careful with sensitive information".
-        val redacted = request.copy(emails = request.emails.map { it.copy(content = it.content.take(300) + if (it.content.length > 300) "…[truncated for debug]" else "") })
-        return debugJson.encodeToString(InsightRequestDto.serializer(), redacted).take(EmailDebugConfig.MAX_TEXT_LENGTH)
     }
 
     private fun emailLabel(email: EmailEntity): String {
