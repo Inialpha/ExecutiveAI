@@ -25,20 +25,19 @@ jobs:
           java-version: '17'
           cache: gradle
 
-      - name: Configure Android SDK
+      - name: Configure Android SDK Path
         run: |
-          echo "$ANDROID_HOME/cmdline-tools/16.0/bin" >> "$GITHUB_PATH"
-          echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
-          echo "$ANDROID_HOME/emulator" >> "$GITHUB_PATH"
+          echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> $GITHUB_PATH
+          echo "$ANDROID_HOME/platform-tools" >> $GITHUB_PATH
 
-      - name: Verify Android SDK
+      - name: Verify & Accept Android SDK Licenses
         run: |
           echo "ANDROID_HOME=$ANDROID_HOME"
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
           which sdkmanager
           sdkmanager --version
+          yes | sdkmanager --licenses
 
-      - name: Install Android 16 SDK
+      - name: Install Android 16 (API 36) SDK
         run: |
           sdkmanager "platforms;android-36" "build-tools;36.0.0"
 
@@ -49,7 +48,8 @@ jobs:
 
       - name: Build debug APK
         run: |
-          gradle --no-daemon --stacktrace assembleDebug
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon --stacktrace
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
