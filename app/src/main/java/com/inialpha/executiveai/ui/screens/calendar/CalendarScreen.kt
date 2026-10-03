@@ -132,7 +132,11 @@ fun CalendarScreen() {
                 if (state.acceptedUpcoming.isNotEmpty()) {
                     item { SectionHeader("Upcoming from Executive AI") }
                     items(state.acceptedUpcoming, key = { it.id }) { item ->
-                        ExecutiveItemCard(item = item, onComplete = { viewModel.completeItem(item.id) })
+                        ExecutiveItemCard(
+                            item = item,
+                            onComplete = { viewModel.completeItem(item.id) },
+                            onDelete = { viewModel.deleteItem(item.id) },
+                        )
                     }
                 }
             }

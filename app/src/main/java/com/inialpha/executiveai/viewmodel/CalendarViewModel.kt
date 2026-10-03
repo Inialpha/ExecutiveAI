@@ -10,6 +10,7 @@ import com.inialpha.executiveai.domain.model.CalendarEvent
 import com.inialpha.executiveai.domain.model.ExecutiveItem
 import com.inialpha.executiveai.domain.model.ExecutiveItemState
 import com.inialpha.executiveai.domain.model.ExecutiveItemType
+import com.inialpha.executiveai.notification.ReminderScheduler
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -107,7 +108,15 @@ class CalendarViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
-    /** Accept a proposed AI event: transitions it (Commitment step) and mirrors it into the real calendar. */
+    /**
+     * Accept a proposed AI event: transitions it (Commitment step), mirrors it into the real
+     * calendar, AND schedules a real native Android alarm (AlarmManager, via [ReminderScheduler])
+     * for the event's start time — a calendar entry alone is not a device alarm, and this
+     * requirement is explicit. The [ExecutiveItem.id] itself is reused as the alarm's identifier
+     * (ReminderScheduler derives its PendingIntent request code from it), so nothing extra needs
+     * persisting to cancel it later, and [com.inialpha.executiveai.notification.RescheduleRemindersWorker]
+     * re-arms it after a reboot the same way it already does for reminders.
+     */
     fun acceptProposedEvent(item: ExecutiveItem) {
         viewModelScope.launch {
             val accepted = container.executiveItemRepository.accept(item.id) ?: return@launch
@@ -118,6 +127,13 @@ class CalendarViewModel(private val container: AppContainer) : ViewModel() {
             }?.let { result ->
                 if (result is CalendarWriteResult.Success) {
                     container.executiveItemRepository.markExecuted(accepted.id, result.eventId)
+                    ReminderScheduler.schedule(
+                        context = container.appContext,
+                        itemId = accepted.id,
+                        title = accepted.title,
+                        body = accepted.description ?: "",
+                        triggerAtMillis = start,
+                    )
                 }
             }
         }
@@ -125,7 +141,16 @@ class CalendarViewModel(private val container: AppContainer) : ViewModel() {
 
     fun rejectProposedEvent(itemId: String) = viewModelScope.launch { container.executiveItemRepository.reject(itemId) }
 
-    fun completeItem(itemId: String) = viewModelScope.launch { container.executiveItemRepository.complete(itemId) }
+    fun completeItem(itemId: String) = viewModelScope.launch {
+        ReminderScheduler.cancel(container.appContext, itemId)
+        container.executiveItemRepository.complete(itemId)
+    }
+
+    /** Permanently removes an accepted item (event/deadline/reminder/task) — cancels any alarm first. */
+    fun deleteItem(itemId: String) = viewModelScope.launch {
+        ReminderScheduler.cancel(container.appContext, itemId)
+        container.executiveItemRepository.delete(itemId)
+    }
 
     private suspend fun withCalendarEventsAccess(accountId: String, block: suspend (String) -> CalendarWriteResult): CalendarWriteResult? {
         val authManager = container.googleAuthManager ?: return null

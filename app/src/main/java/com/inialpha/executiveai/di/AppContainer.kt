@@ -25,6 +25,11 @@ import com.inialpha.executiveai.voice.SpeechRecognizerManager
  * attached via [attachActivity] rather than being available from construction.
  */
 class AppContainer(context: Context) {
+    /** Exposed for call sites (e.g. [com.inialpha.executiveai.viewmodel.CalendarViewModel], a
+     * plain ViewModel rather than an AndroidViewModel) that need a Context for system services
+     * such as AlarmManager but aren't themselves Activity/Application-scoped. */
+    val appContext: Context = context.applicationContext
+
     private val database: AppDatabase = Room.databaseBuilder(
         context.applicationContext,
         AppDatabase::class.java,
