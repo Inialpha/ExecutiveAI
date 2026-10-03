@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.launch
 
 data class DashboardUiState(
     val isLoading: Boolean = true,
@@ -22,8 +23,13 @@ data class DashboardUiState(
     val upcomingAccepted: List<ExecutiveItem> = emptyList(),
 )
 
-/** Executive dashboard: aggregates real state from every subsystem — never hard-coded mock data. */
-class DashboardViewModel(container: AppContainer) : ViewModel() {
+/**
+ * Executive dashboard: aggregates real state from every subsystem — never hard-coded mock data.
+ * Deliberately minimal (see DashboardScreen's doc comment): this exposes only what's needed to
+ * answer "what matters now", each list already capped before the UI ever sees it, not a full
+ * dump of everything the app knows.
+ */
+class DashboardViewModel(private val container: AppContainer) : ViewModel() {
 
     private val _state = MutableStateFlow(DashboardUiState())
     val state: StateFlow<DashboardUiState> = _state.asStateFlow()
@@ -38,10 +44,17 @@ class DashboardViewModel(container: AppContainer) : ViewModel() {
             DashboardUiState(
                 isLoading = false,
                 connectedAccounts = accounts,
-                importantEmails = emails.take(5),
-                itemsNeedingReview = proposed,
-                upcomingAccepted = upcoming.take(5),
+                importantEmails = emails.take(3),
+                itemsNeedingReview = proposed.take(3),
+                upcomingAccepted = upcoming.take(3),
             )
         }.onEach { _state.value = it }.launchIn(viewModelScope)
+    }
+
+    /** Same cascading delete as the Emails screen — every email shown here must have a visible Delete. */
+    fun deleteEmail(emailId: String) = viewModelScope.launch {
+        container.executiveItemRepository.deleteAllForEmail(emailId)
+        container.insightRepository.deleteForEmail(emailId)
+        container.emailRepository.deleteEmail(emailId)
     }
 }

@@ -33,7 +33,12 @@ import com.inialpha.executiveai.viewmodel.executiveAIContainer
 /**
  * Executive command center — displayed as "Home" in the bottom nav (see
  * ui/navigation/ExecutiveDestinations.kt for why the underlying route/screen name is unchanged).
- * Today's priorities, important mail, pending proposals, upcoming items.
+ *
+ * Deliberately NOT a dump of everything the app knows. Priority order: (1) what needs a
+ * decision right now — proposals, (2) what's coming next — upcoming accepted items, (3)
+ * important emails worth a glance. Each section is capped (by the ViewModel) to a handful of
+ * items with a link to see the rest, rather than growing the dashboard itself; when all three
+ * are empty, that's shown as "all caught up," not as three separate empty-state blocks.
  */
 @Composable
 fun DashboardScreen(
@@ -84,32 +89,38 @@ fun DashboardScreen(
             }
         }
 
+        val allCaughtUp = state.itemsNeedingReview.isEmpty() && state.upcomingAccepted.isEmpty() && state.importantEmails.isEmpty()
+
         if (state.itemsNeedingReview.isNotEmpty()) {
-            item {
-                SectionHeader("${state.itemsNeedingReview.size} proposals need your review")
+            item { SectionHeader("Needs your decision") }
+            items(state.itemsNeedingReview, key = { it.id }) { item -> ExecutiveItemCard(item) }
+        }
+
+        if (state.upcomingAccepted.isNotEmpty()) {
+            item { SectionHeaderRow(title = "Coming up", actionLabel = "See calendar", onAction = onOpenCalendar) }
+            items(state.upcomingAccepted, key = { it.id }) { item -> ExecutiveItemCard(item) }
+        }
+
+        if (state.importantEmails.isNotEmpty()) {
+            item { SectionHeaderRow(title = "Important emails", actionLabel = "See all", onAction = onOpenEmails) }
+            items(state.importantEmails, key = { it.id }) { email ->
+                EmailSummaryCard(
+                    email,
+                    onClick = { onOpenEmail(email.id) },
+                    onDelete = { viewModel.deleteEmail(email.id) },
+                )
             }
-            items(state.itemsNeedingReview.take(3)) { item -> ExecutiveItemCard(item) }
         }
 
-        item { SectionHeaderRow(title = "Important emails", actionLabel = emailsActionLabel(state.importantEmails.size), onAction = onOpenEmails) }
-        items(state.importantEmails) { email -> EmailSummaryCard(email, onClick = { onOpenEmail(email.id) }) }
-        if (state.importantEmails.isEmpty()) {
-            item { EmptyState("No important emails yet", "Sync an account to let Executive AI find what matters.") }
+        if (allCaughtUp && state.connectedAccounts.isNotEmpty()) {
+            item { EmptyState("You're all caught up", "New proposals, upcoming items, and important emails will show up here as they come in.") }
         }
-
-        item { SectionHeaderRow(title = "Upcoming", actionLabel = "See calendar", onAction = onOpenCalendar) }
-        if (state.upcomingAccepted.isEmpty()) {
-            item { EmptyState("Nothing scheduled", "Accepted events, deadlines, and reminders will show up here.") }
-        }
-        items(state.upcomingAccepted) { item -> ExecutiveItemCard(item) }
 
         item {
             TextButton(onClick = onOpenAssistant) { Text("Ask the AI Assistant →") }
         }
     }
 }
-
-private fun emailsActionLabel(count: Int) = if (count > 0) "See all ($count)" else "See all"
 
 @Composable
 private fun SectionHeaderRow(title: String, actionLabel: String, onAction: () -> Unit) {
