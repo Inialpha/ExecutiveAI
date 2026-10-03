@@ -9,9 +9,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -34,7 +38,12 @@ private val dateFormat = SimpleDateFormat("EEE, MMM d · h:mm a", Locale.getDefa
 fun formatDueAt(millis: Long?): String? = millis?.let { dateFormat.format(Date(it)) }
 
 @Composable
-fun EmailSummaryCard(email: EmailMessage, onClick: () -> Unit, modifier: Modifier = Modifier) {
+fun EmailSummaryCard(
+    email: EmailMessage,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    onDelete: (() -> Unit)? = null,
+) {
     Card(
         modifier = modifier.fillMaxWidth().clickable(onClick = onClick),
         shape = RoundedCornerShape(16.dp),
@@ -56,6 +65,11 @@ fun EmailSummaryCard(email: EmailMessage, onClick: () -> Unit, modifier: Modifie
                         label = { Text("New") },
                         colors = AssistChipDefaults.assistChipColors(containerColor = MaterialTheme.colorScheme.primary),
                     )
+                }
+                if (onDelete != null) {
+                    IconButton(onClick = onDelete) {
+                        Icon(Icons.Filled.DeleteOutline, contentDescription = "Delete")
+                    }
                 }
             }
             Text(
@@ -80,7 +94,9 @@ fun EmailSummaryCard(email: EmailMessage, onClick: () -> Unit, modifier: Modifie
 
 /**
  * Renders one [ExecutiveItem] with state-appropriate actions:
- * PROPOSED/EDITED → Accept / Edit / Reject. ACCEPTED → Complete. Everything else is read-only.
+ * PROPOSED/EDITED → Accept / Edit / Reject. ACCEPTED → Mark complete / Delete. Everything else
+ * is read-only (a COMPLETED item is filtered out of every active-item list before this card ever
+ * sees it, so there is no "completed" action row to render here).
  */
 @Composable
 fun ExecutiveItemCard(
@@ -89,6 +105,7 @@ fun ExecutiveItemCard(
     onReject: (() -> Unit)? = null,
     onEdit: (() -> Unit)? = null,
     onComplete: (() -> Unit)? = null,
+    onDelete: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     Card(
@@ -120,9 +137,10 @@ fun ExecutiveItemCard(
                     onEdit?.let { OutlinedButton(onClick = it) { Text("Edit") } }
                     onReject?.let { TextButton(onClick = it) { Text("Reject") } }
                 }
-            } else if (item.state == ExecutiveItemState.ACCEPTED && onComplete != null) {
-                Row(Modifier.padding(top = 10.dp)) {
-                    Button(onClick = onComplete) { Text("Mark complete") }
+            } else if (item.state == ExecutiveItemState.ACCEPTED && (onComplete != null || onDelete != null)) {
+                Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    onComplete?.let { Button(onClick = it) { Text("Mark complete") } }
+                    onDelete?.let { OutlinedButton(onClick = it) { Text("Delete") } }
                 }
             }
         }
