@@ -87,7 +87,11 @@ fun TasksScreen() {
             if (state.acceptedTasks.isNotEmpty()) {
                 item { SectionHeader("In progress") }
                 items(state.acceptedTasks) { item ->
-                    ExecutiveItemCard(item = item, onComplete = { viewModel.complete(item.id) })
+                    ExecutiveItemCard(
+                        item = item,
+                        onComplete = { viewModel.complete(item.id) },
+                        onDelete = { viewModel.delete(item.id) },
+                    )
                 }
             }
             if (state.deadlines.isNotEmpty()) {
@@ -97,6 +101,8 @@ fun TasksScreen() {
                         item = item,
                         onAccept = if (item.state.name in setOf("PROPOSED", "EDITED")) { { viewModel.accept(item.id) } } else null,
                         onReject = if (item.state.name in setOf("PROPOSED", "EDITED")) { { viewModel.reject(item.id) } } else null,
+                        onComplete = if (item.state.name == "ACCEPTED") { { viewModel.complete(item.id) } } else null,
+                        onDelete = if (item.state.name == "ACCEPTED") { { viewModel.delete(item.id) } } else null,
                     )
                 }
             }

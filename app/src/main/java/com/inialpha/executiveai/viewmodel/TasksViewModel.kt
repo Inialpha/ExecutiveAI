@@ -7,6 +7,7 @@ import com.inialpha.executiveai.ExecutiveAIApplication
 import com.inialpha.executiveai.di.AppContainer
 import com.inialpha.executiveai.domain.model.Account
 import com.inialpha.executiveai.domain.model.ExecutiveItem
+import com.inialpha.executiveai.domain.model.ExecutiveItemState
 import com.inialpha.executiveai.domain.model.ExecutiveItemType
 import com.inialpha.executiveai.notification.ReminderScheduler
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -46,7 +47,10 @@ class TasksViewModel(application: Application) : AndroidViewModel(application) {
                 isLoading = false,
                 proposedTasks = tasks.filter { it.state.name == "PROPOSED" || it.state.name == "EDITED" },
                 acceptedTasks = tasks.filter { it.state.name == "ACCEPTED" },
-                deadlines = deadlines,
+                // COMPLETED deadlines are retained in storage for a future History view but must
+                // disappear from active UI immediately — filter them out here, same as tasks
+                // (whose two filters above already exclude COMPLETED implicitly).
+                deadlines = deadlines.filter { it.state != ExecutiveItemState.COMPLETED },
                 accounts = accounts,
             )
         }.onEach { _state.value = it }.launchIn(viewModelScope)
@@ -57,6 +61,9 @@ class TasksViewModel(application: Application) : AndroidViewModel(application) {
     fun complete(id: String) = viewModelScope.launch { container.executiveItemRepository.complete(id) }
     fun edit(id: String, title: String, description: String?) =
         viewModelScope.launch { container.executiveItemRepository.edit(id, title = title, description = description) }
+
+    /** Permanently removes an accepted task or deadline — distinct from [complete], which keeps it for history. */
+    fun delete(id: String) = viewModelScope.launch { container.executiveItemRepository.delete(id) }
 
     /**
      * "Add Task": creates the task directly (ACCEPTED — see ExecutiveItemRepository.createManualItem)
