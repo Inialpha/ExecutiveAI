@@ -92,6 +92,15 @@ class EmailRepository(
     }
 
     suspend fun deleteForAccount(accountId: String) = emailDao.deleteForAccount(accountId)
+
+    /**
+     * Deletes one locally-stored email. Any AI-generated insight for it, and any
+     * tasks/events/reminders it produced, are deleted separately by the caller
+     * (see [com.inialpha.executiveai.data.repository.InsightRepository.deleteForEmail] and
+     * [ExecutiveItemRepository.deleteAllForEmail]) — this repository only owns the email row
+     * itself.
+     */
+    suspend fun deleteEmail(emailId: String) = emailDao.deleteById(emailId)
 }
 
 private fun <T> retrofit2.Response<T>.toAuthOrApiError(): SyncResult =

@@ -50,4 +50,7 @@ interface EmailDao {
 
     @Query("DELETE FROM emails WHERE accountId = :accountId")
     suspend fun deleteForAccount(accountId: String)
+
+    @Query("DELETE FROM emails WHERE id = :id")
+    suspend fun deleteById(id: String)
 }
