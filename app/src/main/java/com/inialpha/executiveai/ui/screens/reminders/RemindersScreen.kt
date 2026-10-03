@@ -52,6 +52,7 @@ fun RemindersScreen() {
                     onAccept = if (item.state.name in setOf("PROPOSED", "EDITED")) { { viewModel.accept(item) } } else null,
                     onReject = if (item.state.name in setOf("PROPOSED", "EDITED")) { { viewModel.reject(item.id) } } else null,
                     onComplete = if (item.state.name == "ACCEPTED") { { viewModel.complete(item.id) } } else null,
+                    onDelete = if (item.state.name == "ACCEPTED") { { viewModel.delete(item.id) } } else null,
                 )
             }
         }

@@ -6,12 +6,14 @@ import androidx.lifecycle.viewModelScope
 import com.inialpha.executiveai.ExecutiveAIApplication
 import com.inialpha.executiveai.di.AppContainer
 import com.inialpha.executiveai.domain.model.ExecutiveItem
+import com.inialpha.executiveai.domain.model.ExecutiveItemState
 import com.inialpha.executiveai.domain.model.ExecutiveItemType
 import com.inialpha.executiveai.notification.ReminderScheduler
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 
@@ -33,7 +35,10 @@ class RemindersViewModel(application: Application) : AndroidViewModel(applicatio
     val state: StateFlow<RemindersUiState> = _state.asStateFlow()
 
     init {
+        // COMPLETED reminders are retained in storage for a future History view but must never
+        // show up as an outstanding/active item — filter them out before they reach the UI.
         container.executiveItemRepository.observeByType(ExecutiveItemType.REMINDER)
+            .map { list -> list.filter { it.state != ExecutiveItemState.COMPLETED } }
             .onEach {
                 _state.value = RemindersUiState(
                     isLoading = false,
@@ -57,12 +62,19 @@ class RemindersViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun reject(id: String) = viewModelScope.launch {
+        // A PROPOSED reminder never had an alarm scheduled, so there's nothing to cancel here —
+        // just the hard delete.
         container.executiveItemRepository.reject(id)
-        ReminderScheduler.cancel(getApplication(), id)
     }
 
     fun complete(id: String) = viewModelScope.launch {
         container.executiveItemRepository.complete(id)
         ReminderScheduler.cancel(getApplication(), id)
+    }
+
+    /** Permanently removes an accepted reminder — distinct from [complete], which keeps it for history. */
+    fun delete(id: String) = viewModelScope.launch {
+        ReminderScheduler.cancel(getApplication(), id)
+        container.executiveItemRepository.delete(id)
     }
 }
