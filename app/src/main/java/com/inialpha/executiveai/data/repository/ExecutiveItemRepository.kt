@@ -10,12 +10,20 @@ import kotlinx.coroutines.flow.map
 import java.util.UUID
 
 /**
- * The Accept / Edit / Reject / Complete workflow lives here. This is the single place a
- * PROPOSED item becomes ACCEPTED (a "commitment", per REQUIREMENTS.md) — nothing upstream
+ * The Accept / Edit / Reject / Complete / Delete workflow lives here. This is the single place
+ * a PROPOSED item becomes ACCEPTED (a "commitment", per REQUIREMENTS.md) — nothing upstream
  * ever writes ACCEPTED directly. Downstream, [com.inialpha.executiveai.notification.ReminderScheduler]
  * and [CalendarRepository.createEvent] key off ACCEPTED state changes to actually execute
  * (schedule a notification / create a calendar event) — kept as a separate step so this
  * repository stays a pure state machine.
+ *
+ * Lifecycle (see docs/TASKS.md / REQUIREMENTS.md updates):
+ *  - PROPOSED --accept--> ACCEPTED
+ *  - PROPOSED --reject--> hard-deleted (a rejected proposal must never persist or reappear)
+ *  - ACCEPTED --markComplete--> COMPLETED (retained in storage for a future History view, but
+ *    filtered out of every active-item query the UI uses today)
+ *  - ACCEPTED --delete--> hard-deleted (distinct from markComplete: this is permanent removal,
+ *    not "done and kept for history")
  */
 class ExecutiveItemRepository(
     private val dao: ExecutiveItemDao,
@@ -72,9 +80,22 @@ class ExecutiveItemRepository(
 
     suspend fun accept(id: String): ExecutiveItem? = transition(id, ExecutiveItemState.ACCEPTED)
 
-    suspend fun reject(id: String): ExecutiveItem? = transition(id, ExecutiveItemState.REJECTED)
+    /** A rejected proposal is removed outright — it must never persist or reappear after restart. */
+    suspend fun reject(id: String) {
+        dao.deleteById(id)
+    }
 
     suspend fun complete(id: String): ExecutiveItem? = transition(id, ExecutiveItemState.COMPLETED)
+
+    /** Permanent removal of an accepted item — distinct from [complete], which keeps it for history. */
+    suspend fun delete(id: String) {
+        dao.deleteById(id)
+    }
+
+    /** Cascading delete of every item generated from a specific email (tasks/events/reminders it produced). */
+    suspend fun deleteAllForEmail(emailId: String) {
+        dao.getForEmail(emailId).forEach { dao.deleteById(it.id) }
+    }
 
     suspend fun edit(
         id: String,
