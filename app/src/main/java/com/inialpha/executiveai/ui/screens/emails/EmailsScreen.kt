@@ -4,20 +4,28 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -26,6 +34,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.inialpha.executiveai.ui.components.EmptyState
 import com.inialpha.executiveai.ui.components.LoadingState
+import com.inialpha.executiveai.ui.components.SyncProgressDialog
 import com.inialpha.executiveai.ui.components.formatDueAt
 import com.inialpha.executiveai.ui.theme.TextSecondary
 import com.inialpha.executiveai.viewmodel.EmailWithInsight
@@ -46,12 +55,25 @@ fun EmailsScreen(onOpenEmail: (String) -> Unit) {
     val state by viewModel.state.collectAsStateWithLifecycle()
 
     Column(Modifier.fillMaxSize()) {
-        Text(
-            "Emails",
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(16.dp),
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Emails", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            if (state.accounts.isNotEmpty()) {
+                if (state.isSyncing) {
+                    CircularProgressIndicator(modifier = Modifier.padding(4.dp))
+                } else {
+                    IconButton(onClick = { viewModel.syncNow() }) {
+                        Icon(Icons.Filled.Refresh, contentDescription = "Sync emails")
+                    }
+                }
+            }
+        }
+        state.statusMessage?.let {
+            Text(it, color = TextSecondary, modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp))
+        }
 
         if (state.accounts.isEmpty()) {
             EmptyState("No connected accounts", "Connect a Google account from the Menu to see your emails.")
@@ -74,7 +96,7 @@ fun EmailsScreen(onOpenEmail: (String) -> Unit) {
             return
         }
         if (state.emails.isEmpty()) {
-            EmptyState("No processed emails yet", "Sync this account from the Menu to let Executive AI summarize your inbox.")
+            EmptyState("No processed emails yet", "Tap the sync icon above to let Executive AI summarize this account's inbox.")
             return
         }
 
@@ -83,26 +105,44 @@ fun EmailsScreen(onOpenEmail: (String) -> Unit) {
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             items(state.emails, key = { it.email.id }) { item ->
-                EmailWithInsightCard(item, onClick = { onOpenEmail(item.email.id) })
+                EmailWithInsightCard(
+                    item,
+                    onClick = { onOpenEmail(item.email.id) },
+                    onDelete = { viewModel.deleteEmail(item.email.id) },
+                )
             }
         }
+    }
+
+    state.syncProgress?.let { progress ->
+        SyncProgressDialog(
+            progress = progress,
+            accountLabel = state.syncingAccountLabel,
+            onDismiss = { viewModel.dismissSyncProgress() },
+        )
     }
 }
 
 @Composable
-private fun EmailWithInsightCard(item: EmailWithInsight, onClick: () -> Unit) {
+private fun EmailWithInsightCard(item: EmailWithInsight, onClick: () -> Unit, onDelete: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
     ) {
         Column(Modifier.fillMaxWidth().padding(16.dp)) {
-            Text(
-                item.email.senderName ?: item.email.sender,
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.secondary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    item.email.senderName ?: item.email.sender,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.secondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                IconButton(onClick = onDelete) {
+                    Icon(Icons.Filled.DeleteOutline, contentDescription = "Delete")
+                }
+            }
             Text(
                 item.email.subject,
                 style = MaterialTheme.typography.titleMedium,

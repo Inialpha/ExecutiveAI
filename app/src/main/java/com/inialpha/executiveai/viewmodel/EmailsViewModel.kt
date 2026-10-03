@@ -2,6 +2,8 @@ package com.inialpha.executiveai.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.inialpha.executiveai.data.repository.EmailProcessingProgress
+import com.inialpha.executiveai.data.repository.SyncEvent
 import com.inialpha.executiveai.di.AppContainer
 import com.inialpha.executiveai.domain.model.Account
 import com.inialpha.executiveai.domain.model.EmailInsight
@@ -15,6 +17,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.launch
 
 data class EmailWithInsight(val email: EmailMessage, val insight: EmailInsight?)
 
@@ -25,6 +28,11 @@ data class EmailsUiState(
     val selectedAccountId: String? = null,
     /** Only emails belonging to [selectedAccountId] — accounts are never mixed in this list. */
     val emails: List<EmailWithInsight> = emptyList(),
+    val isSyncing: Boolean = false,
+    val statusMessage: String? = null,
+    /** Live per-email progress for the account currently being processed — drives the sync progress dialog. */
+    val syncProgress: EmailProcessingProgress? = null,
+    val syncingAccountLabel: String? = null,
 )
 
 /**
@@ -32,7 +40,7 @@ data class EmailsUiState(
  * strictly separate — switching the selected tab swaps the entire list rather than filtering a
  * combined one, so there's no risk of a stray cross-account item leaking through.
  */
-class EmailsViewModel(container: AppContainer) : ViewModel() {
+class EmailsViewModel(private val container: AppContainer) : ViewModel() {
 
     private val selectedAccountId = MutableStateFlow<String?>(null)
 
@@ -75,5 +83,47 @@ class EmailsViewModel(container: AppContainer) : ViewModel() {
     fun selectAccount(accountId: String) {
         selectedAccountId.value = accountId
         _state.value = _state.value.copy(selectedAccountId = accountId, isLoading = true)
+    }
+
+    fun dismissSyncProgress() {
+        _state.value = _state.value.copy(syncProgress = null, syncingAccountLabel = null)
+    }
+
+    /**
+     * Direct "Sync Emails" action on this screen — reuses the exact same [SyncCoordinator]
+     * orchestration and progress UI as the Accounts screen's sync, rather than duplicating the
+     * logic (REQUIREMENTS change request section 3: Accounts manages accounts only; Emails gets
+     * its own direct synchronization action).
+     */
+    fun syncNow() {
+        val authManager = container.googleAuthManager ?: return
+        viewModelScope.launch {
+            _state.value = _state.value.copy(isSyncing = true, statusMessage = null)
+            container.syncCoordinator.syncAll(authManager).collect { event ->
+                when (event) {
+                    is SyncEvent.EmailProgress ->
+                        _state.value = _state.value.copy(syncProgress = event.progress, syncingAccountLabel = event.accountLabel)
+                    is SyncEvent.Finished -> {
+                        val statusMessage = when {
+                            event.anyFailure -> "Some accounts need re-authorization."
+                            event.totalFailed > 0 -> "Synced. ${event.totalProcessed} email(s) processed, ${event.totalFailed} failed and will retry next sync."
+                            else -> "Synced."
+                        }
+                        _state.value = _state.value.copy(isSyncing = false, statusMessage = statusMessage)
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Deletes one email and everything it generated. The email → generated-task/event
+     * relationship is a real, tracked one (sourceEmailId), so this cascades safely rather than
+     * inventing a relationship that doesn't exist (REQUIREMENTS change request section 7).
+     */
+    fun deleteEmail(emailId: String) = viewModelScope.launch {
+        container.executiveItemRepository.deleteAllForEmail(emailId)
+        container.insightRepository.deleteForEmail(emailId)
+        container.emailRepository.deleteEmail(emailId)
     }
 }
