@@ -4,24 +4,23 @@ import android.app.AlarmManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.os.Build
+import com.inialpha.executiveai.MainActivity
 
 /**
- * Foundation for turning an ACCEPTED reminder-type [com.inialpha.executiveai.domain.model.ExecutiveItem]
- * into a real device alarm. Uses `setExactAndAllowWhileIdle` where the app holds the exact-alarm
- * privilege, degrading to an inexact `set()` otherwise — Android 12+ restricts exact alarms, so
- * this never assumes the stronger guarantee is available.
+ * Turns an ACCEPTED item into a real device alarm. Uses `AlarmManager.setAlarmClock`, the same
+ * mechanism the system Clock app uses: it fires exactly on time even in Doze, shows the alarm
+ * icon in the status bar, and — unlike setExact* — needs no special exact-alarm permission.
+ * When it fires, [ReminderAlarmReceiver] starts [AlarmService], which rings with the phone's
+ * alarm tone until dismissed or snoozed.
  *
  * Persistence/recovery after reboot is handled by [BootRescheduleReceiver], which re-reads
  * ACCEPTED reminder items from Room and calls [schedule] again for each one still in the future.
  */
 object ReminderScheduler {
 
-    fun canScheduleExactAlarms(context: Context): Boolean {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return true
-        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-        return alarmManager.canScheduleExactAlarms()
-    }
+    /** Always true: setAlarmClock alarms are exempt from the Android 12+ exact-alarm restriction. */
+    @Suppress("UNUSED_PARAMETER")
+    fun canScheduleExactAlarms(context: Context): Boolean = true
 
     fun schedule(context: Context, itemId: String, title: String, body: String, triggerAtMillis: Long) {
         if (triggerAtMillis <= System.currentTimeMillis()) return
@@ -37,11 +36,12 @@ object ReminderScheduler {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
-        if (canScheduleExactAlarms(context)) {
-            alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent)
-        } else {
-            alarmManager.set(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent)
-        }
+        // Tapping the status-bar alarm icon opens the app.
+        val showIntent = PendingIntent.getActivity(
+            context, 0, Intent(context, MainActivity::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        alarmManager.setAlarmClock(AlarmManager.AlarmClockInfo(triggerAtMillis, showIntent), pendingIntent)
     }
 
     fun cancel(context: Context, itemId: String) {

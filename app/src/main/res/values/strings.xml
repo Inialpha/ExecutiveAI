@@ -5,4 +5,9 @@
 
     <string name="notification_channel_reminders_name">Executive AI reminders</string>
     <string name="notification_channel_reminders_description">Alerts for reminders, deadlines, and events you\'ve accepted</string>
+    <string name="notification_channel_alarms_name">Executive AI alarms</string>
+    <string name="notification_channel_alarms_description">Rings like an alarm when an event, task or reminder you accepted is due</string>
+    <string name="alarm_snooze">Snooze</string>
+    <string name="alarm_dismiss">Dismiss</string>
+    <string name="alarm_default_body">It\'s time.</string>
 </resources>

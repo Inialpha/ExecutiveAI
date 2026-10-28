@@ -11,6 +11,7 @@ import com.inialpha.executiveai.R
 
 object NotificationHelper {
     const val CHANNEL_REMINDERS = "executive_reminders"
+    const val CHANNEL_ALARMS = "executive_alarms"
 
     fun ensureChannels(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
@@ -23,6 +24,20 @@ object NotificationHelper {
             description = context.getString(R.string.notification_channel_reminders_description)
         }
         manager.createNotificationChannel(channel)
+
+        // Alarm channel: deliberately silent itself — AlarmService plays the phone's alarm tone on
+        // the ALARM audio stream (looping), which a channel sound cannot do.
+        val alarmChannel = NotificationChannel(
+            CHANNEL_ALARMS,
+            context.getString(R.string.notification_channel_alarms_name),
+            NotificationManager.IMPORTANCE_HIGH,
+        ).apply {
+            description = context.getString(R.string.notification_channel_alarms_description)
+            setSound(null, null)
+            enableVibration(false)
+            lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
+        }
+        manager.createNotificationChannel(alarmChannel)
     }
 
     /** Requires POST_NOTIFICATIONS to already be granted on API 33+ — callers check before invoking. */

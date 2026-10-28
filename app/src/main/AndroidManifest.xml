@@ -13,6 +13,12 @@
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
 
+    <!-- Ringing alarm: foreground service playing the alarm tone, full-screen alarm screen, vibration -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+
     <!-- Re-schedule reminder alarms after a device restart (see notification/BootRescheduleReceiver) -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
@@ -39,6 +45,18 @@
         <receiver
             android:name=".notification.ReminderAlarmReceiver"
             android:exported="false" />
+
+        <service
+            android:name=".notification.AlarmService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
+
+        <activity
+            android:name=".notification.AlarmActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:excludeFromRecents="true"
+            android:taskAffinity="" />
 
         <receiver
             android:name=".notification.BootRescheduleReceiver"

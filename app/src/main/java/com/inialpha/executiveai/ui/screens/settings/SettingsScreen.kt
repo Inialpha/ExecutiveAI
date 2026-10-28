@@ -12,10 +12,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.inialpha.executiveai.notification.ReminderScheduler
 import com.inialpha.executiveai.ui.components.SyncWindowPickerDialog
 import com.inialpha.executiveai.ui.theme.TextSecondary
 import com.inialpha.executiveai.viewmodel.SettingsViewModel
@@ -25,6 +27,7 @@ fun SettingsScreen(onOpenAccounts: () -> Unit, onOpenReminders: () -> Unit) {
     val viewModel: SettingsViewModel = viewModel()
     val state by viewModel.state.collectAsStateWithLifecycle()
     var showWindowPicker by remember { mutableStateOf(false) }
+    val context = LocalContext.current
 
     Column(Modifier.fillMaxSize().padding(20.dp)) {
         Text("Settings", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
@@ -33,6 +36,10 @@ fun SettingsScreen(onOpenAccounts: () -> Unit, onOpenReminders: () -> Unit) {
         TextButton(onClick = onOpenAccounts) { Text("Connected accounts") }
         TextButton(onClick = onOpenReminders) { Text("Reminders") }
         TextButton(onClick = { showWindowPicker = true }) { Text("Email sync window: ${state.syncWindow.label()}") }
+
+        TextButton(onClick = {
+            ReminderScheduler.schedule(context, "test-alarm", "Test alarm", "If you can hear this, alarms work.", System.currentTimeMillis() + 10_000)
+        }) { Text("Test alarm (rings in 10 seconds)") }
 
         if (!state.canScheduleExactAlarms) {
             Text(
