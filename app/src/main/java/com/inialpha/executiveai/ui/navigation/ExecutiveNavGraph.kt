@@ -17,6 +17,21 @@ import com.inialpha.executiveai.ui.screens.reminders.RemindersScreen
 import com.inialpha.executiveai.ui.screens.settings.SettingsScreen
 import com.inialpha.executiveai.ui.screens.tasks.TasksScreen
 
+/**
+ * The one way to move between top-level destinations (Home / Emails / Calendar / Tasks) — used by
+ * the bottom bar AND by in-screen links like Home's cards, so both always leave the back stack in
+ * the same shape. It pops to Dashboard by route (not by the graph's start destination, which is
+ * Onboarding on a first run and so is never on the back stack afterwards, making popUpTo a no-op
+ * and letting duplicate Home entries pile up).
+ */
+fun NavHostController.navigateTopLevel(route: String) {
+    navigate(route) {
+        popUpTo(ExecutiveDestination.Dashboard.route) { saveState = true }
+        launchSingleTop = true
+        restoreState = true
+    }
+}
+
 @Composable
 fun ExecutiveNavGraph(navController: NavHostController, startDestination: String) {
     NavHost(navController = navController, startDestination = startDestination) {
@@ -31,8 +46,8 @@ fun ExecutiveNavGraph(navController: NavHostController, startDestination: String
         }
         composable(ExecutiveDestination.Dashboard.route) {
             DashboardScreen(
-                onOpenCalendar = { navController.navigate(ExecutiveDestination.Calendar.route) },
-                onOpenTasks = { navController.navigate(ExecutiveDestination.Tasks.route) },
+                onOpenCalendar = { navController.navigateTopLevel(ExecutiveDestination.Calendar.route) },
+                onOpenTasks = { navController.navigateTopLevel(ExecutiveDestination.Tasks.route) },
                 onOpenReminders = { navController.navigate(ExecutiveDestination.Reminders.route) },
                 onOpenAssistant = { navController.navigate(ExecutiveDestination.Assistant.route) },
                 onOpenAccounts = { navController.navigate(ExecutiveDestination.Accounts.route) },

@@ -27,6 +27,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.navigation.NavDestination
+import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
@@ -35,6 +37,7 @@ import com.inialpha.executiveai.ui.components.LoadingState
 import com.inialpha.executiveai.ui.navigation.ExecutiveDestination
 import com.inialpha.executiveai.ui.navigation.ExecutiveNavGraph
 import com.inialpha.executiveai.ui.navigation.bottomNavDestinations
+import com.inialpha.executiveai.ui.navigation.navigateTopLevel
 import com.inialpha.executiveai.viewmodel.executiveAIContainer
 
 /**
@@ -69,7 +72,8 @@ fun ExecutiveAIApp() {
 private fun ExecutiveAIScaffold(startDestination: String) {
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
-    val currentRoute = backStackEntry?.destination?.route
+    val currentDestination = backStackEntry?.destination
+    val currentRoute = currentDestination?.route
 
     Scaffold(
         topBar = {
@@ -79,7 +83,7 @@ private fun ExecutiveAIScaffold(startDestination: String) {
         },
         bottomBar = {
             if (currentRoute != ExecutiveDestination.Onboarding.route && currentRoute != ExecutiveDestination.EmailInsight.route) {
-                ExecutiveBottomBar(navController, currentRoute)
+                ExecutiveBottomBar(navController, currentDestination)
             }
         },
     ) { padding ->
@@ -124,18 +128,13 @@ private fun ExecutiveTopBar(navController: NavHostController) {
 }
 
 @Composable
-private fun ExecutiveBottomBar(navController: NavHostController, currentRoute: String?) {
+private fun ExecutiveBottomBar(navController: NavHostController, currentDestination: NavDestination?) {
     NavigationBar {
         bottomNavDestinations.forEach { destination ->
             NavigationBarItem(
-                selected = currentRoute == destination.route,
-                onClick = {
-                    navController.navigate(destination.route) {
-                        popUpTo(navController.graph.startDestinationId) { saveState = true }
-                        launchSingleTop = true
-                        restoreState = true
-                    }
-                },
+                // Selection is derived from where the user actually is, never stored separately.
+                selected = currentDestination?.hierarchy?.any { it.route == destination.route } == true,
+                onClick = { navController.navigateTopLevel(destination.route) },
                 icon = { Icon(iconFor(destination), contentDescription = null) },
                 label = { Text(labelFor(destination)) },
             )
