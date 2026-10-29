@@ -31,9 +31,9 @@ fun ExecutiveNavGraph(navController: NavHostController, startDestination: String
         }
         composable(ExecutiveDestination.Dashboard.route) {
             DashboardScreen(
-                onOpenEmails = { navController.navigate(ExecutiveDestination.Emails.route) },
-                onOpenEmail = { emailId -> navController.navigate(ExecutiveDestination.EmailInsight.createRoute(emailId)) },
                 onOpenCalendar = { navController.navigate(ExecutiveDestination.Calendar.route) },
+                onOpenTasks = { navController.navigate(ExecutiveDestination.Tasks.route) },
+                onOpenReminders = { navController.navigate(ExecutiveDestination.Reminders.route) },
                 onOpenAssistant = { navController.navigate(ExecutiveDestination.Assistant.route) },
                 onOpenAccounts = { navController.navigate(ExecutiveDestination.Accounts.route) },
             )

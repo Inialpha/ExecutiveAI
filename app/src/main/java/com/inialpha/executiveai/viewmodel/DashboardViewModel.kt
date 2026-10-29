@@ -4,57 +4,85 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.inialpha.executiveai.di.AppContainer
 import com.inialpha.executiveai.domain.model.Account
-import com.inialpha.executiveai.domain.model.EmailMessage
 import com.inialpha.executiveai.domain.model.ExecutiveItem
 import com.inialpha.executiveai.domain.model.ExecutiveItemState
+import com.inialpha.executiveai.domain.model.ExecutiveItemType
+import com.inialpha.executiveai.notification.ReminderScheduler
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
+import java.util.Calendar
 
 data class DashboardUiState(
     val isLoading: Boolean = true,
     val connectedAccounts: List<Account> = emptyList(),
-    val importantEmails: List<EmailMessage> = emptyList(),
-    val itemsNeedingReview: List<ExecutiveItem> = emptyList(),
-    val upcomingAccepted: List<ExecutiveItem> = emptyList(),
+    /** AI-proposed events still awaiting Accept/Reject. */
+    val eventsNeedingAction: Int = 0,
+    /** AI-proposed tasks and deadlines still awaiting Accept/Reject. */
+    val tasksNeedingAction: Int = 0,
+    val remindersNeedingAction: Int = 0,
+    /** ACCEPTED, not-yet-completed items whose due date falls today, earliest first. */
+    val today: List<ExecutiveItem> = emptyList(),
 )
 
 /**
- * Executive dashboard: aggregates real state from every subsystem — never hard-coded mock data.
- * Deliberately minimal (see DashboardScreen's doc comment): this exposes only what's needed to
- * answer "what matters now", each list already capped before the UI ever sees it, not a full
- * dump of everything the app knows.
+ * Home answers two questions only: "what is waiting on a decision from me?" (counts per type,
+ * each a link to where the decision is made) and "what is on for today?" (accepted items whose
+ * [ExecutiveItem.dueAtMillis] falls inside today's local day). No email list lives here.
  */
 class DashboardViewModel(private val container: AppContainer) : ViewModel() {
 
     private val _state = MutableStateFlow(DashboardUiState())
     val state: StateFlow<DashboardUiState> = _state.asStateFlow()
 
+    /** Re-evaluates "today" every minute so the list rolls over at midnight without a reopen. */
+    private val minuteTick = flow {
+        while (true) {
+            emit(Unit)
+            delay(60_000)
+        }
+    }
+
     init {
         combine(
             container.accountRepository.observeAccounts(),
-            container.emailRepository.observeImportant(),
-            container.executiveItemRepository.observeByState(ExecutiveItemState.PROPOSED),
-            container.executiveItemRepository.observeUpcomingAccepted(),
-        ) { accounts, emails, proposed, upcoming ->
+            container.executiveItemRepository.observeAll(),
+            minuteTick,
+        ) { accounts, items, _ ->
+            val needsDecision = items.filter { it.state == ExecutiveItemState.PROPOSED || it.state == ExecutiveItemState.EDITED }
+            val (dayStart, dayEnd) = todayRangeMillis()
             DashboardUiState(
                 isLoading = false,
                 connectedAccounts = accounts,
-                importantEmails = emails.take(3),
-                itemsNeedingReview = proposed.take(3),
-                upcomingAccepted = upcoming.take(3),
+                eventsNeedingAction = needsDecision.count { it.type == ExecutiveItemType.EVENT },
+                tasksNeedingAction = needsDecision.count { it.type == ExecutiveItemType.TASK || it.type == ExecutiveItemType.DEADLINE },
+                remindersNeedingAction = needsDecision.count { it.type == ExecutiveItemType.REMINDER },
+                today = items
+                    .filter { it.state == ExecutiveItemState.ACCEPTED }
+                    .filter { val due = it.dueAtMillis; due != null && due >= dayStart && due < dayEnd }
+                    .sortedBy { it.dueAtMillis },
             )
         }.onEach { _state.value = it }.launchIn(viewModelScope)
     }
 
-    /** Same cascading delete as the Emails screen — every email shown here must have a visible Delete. */
-    fun deleteEmail(emailId: String) = viewModelScope.launch {
-        container.executiveItemRepository.deleteAllForEmail(emailId)
-        container.insightRepository.deleteForEmail(emailId)
-        container.emailRepository.deleteEmail(emailId)
+    /** Marks a today-item done: cancels its alarm and keeps it in storage (hidden from active UI). */
+    fun complete(itemId: String) = viewModelScope.launch {
+        ReminderScheduler.cancel(container.appContext, itemId)
+        container.executiveItemRepository.complete(itemId)
+    }
+
+    private fun todayRangeMillis(): Pair<Long, Long> {
+        val cal = Calendar.getInstance().apply {
+            set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+        }
+        val start = cal.timeInMillis
+        cal.add(Calendar.DAY_OF_YEAR, 1)
+        return start to cal.timeInMillis
     }
 }
