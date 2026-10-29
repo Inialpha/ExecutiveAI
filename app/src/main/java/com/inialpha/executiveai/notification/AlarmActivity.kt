@@ -21,6 +21,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -70,7 +73,7 @@ class AlarmActivity : ComponentActivity() {
 private fun AlarmScreen(title: String, body: String, onDismiss: () -> Unit, onSnooze: () -> Unit, onStopped: () -> Unit) {
     val ringing by AlarmService.isRinging.collectAsStateWithLifecycle()
     // Closes itself if the alarm was dismissed from the notification instead.
-    var seenRinging by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    var seenRinging by remember { mutableStateOf(false) }
     LaunchedEffect(ringing) {
         if (ringing) seenRinging = true else if (seenRinging) onStopped()
     }
